@@ -1,0 +1,1348 @@
+// Track pieces: path generation, meshes, colliders and moving devices.
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/BufferGeometryUtils.js';
+import { SweepCollider, RevolveCollider, BoxCollider, CylinderCollider, RotorBody, SURFACES, seg, arc, polyline, roomClearance } from './physics.js';
+import * as TX from './textures.js';
+
+export const RC = 0.016;   // inner radius of the channel
+export const TH = 0.0035;  // wall thickness
+export const WALL = 0.006; // wall top above centerline
+const PI = Math.PI, TAU = PI * 2, DEG = PI / 180;
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+const UP = V(0, 1, 0);
+
+export const COLORS = {
+  wood: '#e0b97f', red: '#ff5d5d', orange: '#ff9f43', yellow: '#ffd23f', green: '#3ccf7a',
+  teal: '#2ec4b6', blue: '#4c8dff', purple: '#9b6bff', pink: '#ff77b7', white: '#f4f1ea',
+};
+export const RAINBOW = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
+
+export const heading = (psi, out = V()) => out.set(Math.cos(psi), 0, -Math.sin(psi));
+export const leftOf = (psi, out = V()) => out.set(-Math.sin(psi), 0, -Math.cos(psi));
+export const dirOf = (psi, phi, out = V()) => { const c = Math.cos(phi); return out.set(Math.cos(psi) * c, -Math.sin(phi), -Math.sin(psi) * c); };
+const ease = (t) => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
+const lerpE = (a, b, t) => a + (b - a) * ease(t);
+const normAng = (a) => { a %= TAU; if (a > PI) a -= TAU; if (a < -PI) a += TAU; return a; };
+
+export class Sample { constructor(p, T, U, s) { this.p = p; this.T = T; this.U = U; this.s = s; } }
+
+function frame(psi, phi, bank, T, U) {
+  const cphi = Math.cos(phi), sphi = Math.sin(phi), cps = Math.cos(psi), sps = Math.sin(psi);
+  T.set(cps * cphi, -sphi, -sps * cphi);
+  U.set(cps * sphi, cphi, -sps * sphi);
+  if (bank) {
+    const R = V().crossVectors(T, U);
+    U.multiplyScalar(Math.cos(bank)).addScaledVector(R, Math.sin(bank));
+  }
+}
+
+// integrates a centerline from yaw/pitch/bank functions of arc length
+function turtle(p0, L, fn, s0 = 0) {
+  const steps = Math.max(8, Math.ceil(L / 0.001)), ds = L / steps;
+  const every = Math.max(1, Math.round(0.008 / ds));
+  const p = p0.clone(), T = V(), U = V(), out = [];
+  let st = fn(0);
+  frame(st.psi, st.phi, st.bank || 0, T, U);
+  out.push(new Sample(p.clone(), T.clone(), U.clone(), s0));
+  for (let k = 0; k < steps; k++) {
+    st = fn((k + 0.5) * ds);
+    frame(st.psi, st.phi, st.bank || 0, T, U);
+    p.addScaledVector(T, ds);
+    if ((k + 1) % every === 0 || k === steps - 1) {
+      st = fn((k + 1) * ds);
+      frame(st.psi, st.phi, st.bank || 0, T, U);
+      out.push(new Sample(p.clone(), T.clone(), U.clone(), s0 + (k + 1) * ds));
+    }
+  }
+  return out;
+}
+function join(a, b) { for (let i = 1; i < b.length; i++) a.push(b[i]); return a; }
+const last = (s) => s[s.length - 1];
+const endPort = (s, psi, phi) => ({ p: last(s).p.clone(), psi: normAng(psi), phi });
+export const portFromData = (q) => ({ p: V(q.x, q.y, q.z), psi: q.psi, phi: q.phi || 0 });
+export const portToData = (q) => ({ x: +q.p.x.toFixed(5), y: +q.p.y.toFixed(5), z: +q.p.z.toFixed(5), psi: +q.psi.toFixed(5), phi: +(q.phi || 0).toFixed(5) });
+
+// resample a parametric curve by arc length, frames from its tangent (no bank)
+function curveSamples(fn, N = 600, step = 0.007) {
+  const pts = [];
+  for (let i = 0; i <= N; i++) pts.push(fn(i / N));
+  const out = [];
+  let acc = 0, s = 0;
+  const pushAt = (i) => {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N, i + 1)];
+    const T = b.clone().sub(a).normalize();
+    const psi = Math.atan2(-T.z, T.x), phi = Math.asin(Math.max(-1, Math.min(1, -T.y)));
+    const TT = V(), U = V();
+    frame(psi, phi, 0, TT, U);
+    out.push(new Sample(pts[i].clone(), T, U, s));
+  };
+  pushAt(0);
+  for (let i = 1; i <= N; i++) {
+    const d = pts[i].distanceTo(pts[i - 1]);
+    acc += d; s += d;
+    if (acc >= step || i === N) { pushAt(i); acc = 0; }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- profiles
+function arcPts(R, a0, a1, n, inward) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + (a1 - a0) * i / n, c = Math.cos(a), s = Math.sin(a);
+    out.push([c * R, s * R, inward ? -c : c, inward ? -s : s]);
+  }
+  return out;
+}
+const PROFILES = {};
+function makeChannel() {
+  const Ro = RC + TH;
+  const prims = [
+    arc(0, 0, RC, PI, TAU, { side: 0 }),
+    seg(-RC, 0, -RC, WALL, { side: -1 }), seg(RC, 0, RC, WALL, { side: 1 }),
+    seg(-Ro, WALL, -RC, WALL, { side: -1 }), seg(RC, WALL, Ro, WALL, { side: 1 }),
+    seg(-Ro, 0, -Ro, WALL, { side: -1 }), seg(Ro, 0, Ro, WALL, { side: 1 }),
+    arc(0, 0, Ro, PI, TAU, { side: 0 }),
+  ];
+  const strips = [
+    { side: -1, pts: [[-RC, WALL, 1, 0], [-RC, 0, 1, 0]] },
+    { side: 0, pts: arcPts(RC, PI, TAU, 16, true) },
+    { side: 1, pts: [[RC, 0, -1, 0], [RC, WALL, -1, 0]] },
+    { side: -1, pts: [[-Ro, WALL, 0, 1], [-RC, WALL, 0, 1]] },
+    { side: 1, pts: [[RC, WALL, 0, 1], [Ro, WALL, 0, 1]] },
+    { side: 1, pts: [[Ro, WALL, 1, 0], [Ro, 0, 1, 0]] },
+    { side: 0, pts: arcPts(Ro, TAU, PI, 16, false) },
+    { side: -1, pts: [[-Ro, 0, -1, 0], [-Ro, WALL, -1, 0]] },
+  ];
+  const cap = [[-Ro, WALL], [-RC, WALL], ...arcPts(RC, PI, TAU, 16, true).map(p => [p[0], p[1]]), [RC, WALL], [Ro, WALL], ...arcPts(Ro, TAU, PI, 16, false).map(p => [p[0], p[1]])];
+  return { prims, strips, cap };
+}
+function makeTube() {
+  const Ro = RC + TH;
+  return {
+    prims: [arc(0, 0, RC, 0, TAU, { side: 0 }), arc(0, 0, Ro, 0, TAU, { side: 0 })],
+    strips: [{ side: 0, pts: arcPts(RC, 0, TAU, 24, true) }, { side: 0, pts: arcPts(Ro, TAU, 0, 24, false) }],
+    capOuter: arcPts(Ro, 0, TAU, 24, false).slice(0, -1).map(p => [p[0], p[1]]),
+    capInner: arcPts(RC, 0, TAU, 24, false).slice(0, -1).map(p => [p[0], p[1]]),
+  };
+}
+function makeFlat() {
+  const Ro = RC + TH, F = -RC;
+  const prims = [
+    seg(-RC, F, RC, F, { side: 0 }), seg(-RC, F, -RC, WALL, { side: -1 }), seg(RC, F, RC, WALL, { side: 1 }),
+    seg(-Ro, WALL, -RC, WALL, { side: -1 }), seg(RC, WALL, Ro, WALL, { side: 1 }),
+    seg(-Ro, F - TH, -Ro, WALL, { side: -1 }), seg(Ro, F - TH, Ro, WALL, { side: 1 }), seg(-Ro, F - TH, Ro, F - TH, { side: 0 }),
+  ];
+  const strips = [
+    { side: -1, pts: [[-RC, WALL, 1, 0], [-RC, F, 1, 0]] },
+    { side: 0, pts: [[-RC, F, 0, 1], [RC, F, 0, 1]] },
+    { side: 1, pts: [[RC, F, -1, 0], [RC, WALL, -1, 0]] },
+    { side: -1, pts: [[-Ro, WALL, 0, 1], [-RC, WALL, 0, 1]] },
+    { side: 1, pts: [[RC, WALL, 0, 1], [Ro, WALL, 0, 1]] },
+    { side: 1, pts: [[Ro, WALL, 1, 0], [Ro, F - TH, 1, 0]] },
+    { side: 0, pts: [[Ro, F - TH, 0, -1], [-Ro, F - TH, 0, -1]] },
+    { side: -1, pts: [[-Ro, F - TH, -1, 0], [-Ro, WALL, -1, 0]] },
+  ];
+  const cap = [[-Ro, WALL], [-RC, WALL], [-RC, F], [RC, F], [RC, WALL], [Ro, WALL], [Ro, F - TH], [-Ro, F - TH]];
+  return { prims, strips, cap };
+}
+// laser-cut plywood: flat floor, tall side plates with cut-outs (mat 1 = plate texture with holes)
+function makePly() {
+  const Ro = RC + 0.003, F = -RC, B = F - 0.004, Wt = 0.02;
+  const prims = [
+    seg(-RC, F, RC, F, { side: 0 }), seg(-RC, F, -RC, Wt, { side: -1 }), seg(RC, F, RC, Wt, { side: 1 }),
+    seg(-Ro, Wt, -RC, Wt, { side: -1 }), seg(RC, Wt, Ro, Wt, { side: 1 }),
+    seg(-Ro, B, -Ro, Wt, { side: -1 }), seg(Ro, B, Ro, Wt, { side: 1 }), seg(-Ro, B, Ro, B, { side: 0 }),
+  ];
+  const strips = [
+    { side: 0, pts: [[-RC, F, 0, 1], [RC, F, 0, 1]] },
+    { side: 0, pts: [[Ro, B, 0, -1], [-Ro, B, 0, -1]] },
+    { side: -1, mat: 1, vh: [B, Wt], pts: [[-RC, Wt, 1, 0], [-RC, F, 1, 0]] },
+    { side: -1, mat: 1, vh: [B, Wt], pts: [[-Ro, B, -1, 0], [-Ro, Wt, -1, 0]] },
+    { side: 1, mat: 1, vh: [B, Wt], pts: [[RC, F, -1, 0], [RC, Wt, -1, 0]] },
+    { side: 1, mat: 1, vh: [B, Wt], pts: [[Ro, Wt, 1, 0], [Ro, B, 1, 0]] },
+    { side: -1, pts: [[-Ro, Wt, 0, 1], [-RC, Wt, 0, 1]] },
+    { side: 1, pts: [[RC, Wt, 0, 1], [Ro, Wt, 0, 1]] },
+  ];
+  const cap = [[-Ro, Wt], [-RC, Wt], [-RC, F], [RC, F], [RC, Wt], [Ro, Wt], [Ro, B], [-Ro, B]];
+  return { prims, strips, cap };
+}
+// roller-coaster rails: two running rails under the ball and two guard rails beside it
+function makeRails() {
+  const a = 0.007, rr = 0.0025, vr = -0.0164, ga = 0.017, gv = -0.003;
+  const ring = (cx, cy) => ({ side: Math.sign(cx), pts: arcPts(rr, 0, TAU, 8, false).map(([u, v, nu, nv]) => [u + cx, v + cy, nu, nv]) });
+  return {
+    prims: [arc(-a, vr, rr, 0, TAU, { side: -1 }), arc(a, vr, rr, 0, TAU, { side: 1 }), arc(-ga, gv, rr, 0, TAU, { side: -1 }), arc(ga, gv, rr, 0, TAU, { side: 1 })],
+    strips: [ring(-a, vr), ring(a, vr), ring(-ga, gv), ring(ga, gv)],
+    rails: { a, rr, vr, ga, gv },
+  };
+}
+// visual only: the arch of a tunnel
+function makeArch() {
+  const R1 = 0.036, R2 = 0.042, cy = -0.014, a0 = -0.15, a1 = PI + 0.15;
+  return {
+    prims: [],
+    strips: [{ side: 0, pts: arcPts(R1, a1, a0, 20, true).map(([u, v, nu, nv]) => [u, v + cy, nu, nv]) }, { side: 0, pts: arcPts(R2, a0, a1, 20, false).map(([u, v, nu, nv]) => [u, v + cy, nu, nv]) }],
+  };
+}
+PROFILES.channel = makeChannel();
+PROFILES.tube = makeTube();
+PROFILES.flat = makeFlat();
+PROFILES.ply = makePly();
+PROFILES.rails = makeRails();
+PROFILES.arch = makeArch();
+export const STYLES = ['channel', 'tube', 'ply', 'rails'];
+
+// copy of profile prims with one side switched off before arc length s0 (used by the switch's Y split)
+function cutPrims(prims, side, s0) {
+  return prims.map(p => (side && p.side === side) ? Object.assign({}, p, { s0, s1: Infinity }) : p);
+}
+
+// ---------------------------------------------------------------- geometry
+function sweepGeometry(samples, profile, cut) {
+  const pos = [], nor = [], uv = [], idxBy = [[], []];
+  let idx = idxBy[0];
+  const R = V();
+  for (const st of profile.strips) {
+    const list = (cut && st.side === cut.side) ? samples.filter(s => s.s >= cut.s0) : samples;
+    if (list.length < 2) continue;
+    const pts = st.pts, np = pts.length;
+    const per = [0];
+    for (let k = 1; k < np; k++) per.push(per[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+    const base = pos.length / 3;
+    for (const sm of list) {
+      R.crossVectors(sm.T, sm.U);
+      for (let k = 0; k < np; k++) {
+        const [u, v, nu, nv] = pts[k];
+        pos.push(sm.p.x + R.x * u + sm.U.x * v, sm.p.y + R.y * u + sm.U.y * v, sm.p.z + R.z * u + sm.U.z * v);
+        nor.push(R.x * nu + sm.U.x * nv, R.y * nu + sm.U.y * nv, R.z * nu + sm.U.z * nv);
+        // plates map v by height so both faces line up (their cut-outs go right through)
+        uv.push(sm.s * 5, st.vh ? (v - st.vh[0]) / (st.vh[1] - st.vh[0]) : per[k] * 25);
+      }
+    }
+    const dx = pts[1][0] - pts[0][0], dy = pts[1][1] - pts[0][1];
+    const flip = (dy * pts[0][2] - dx * pts[0][3]) < 0;
+    const out = idxBy[st.mat || 0];
+    for (let i = 0; i < list.length - 1; i++) for (let k = 0; k < np - 1; k++) {
+      const a = base + i * np + k, b = a + np, c = a + 1, d = b + 1;
+      if (!flip) out.push(a, b, c, c, b, d); else out.push(a, c, b, c, d, b);
+    }
+  }
+  // end caps
+  const capAt = (sm, sign) => {
+    let contour, holes = [];
+    if (profile.cap) contour = profile.cap; else { contour = profile.capOuter; holes = [profile.capInner]; }
+    const all = contour.concat(...holes);
+    const tris = THREE.ShapeUtils.triangulateShape(contour.map(p => new THREE.Vector2(p[0], p[1])), holes.map(h => h.map(p => new THREE.Vector2(p[0], p[1]))));
+    R.crossVectors(sm.T, sm.U);
+    const base = pos.length / 3;
+    for (const [u, v] of all) {
+      pos.push(sm.p.x + R.x * u + sm.U.x * v, sm.p.y + R.y * u + sm.U.y * v, sm.p.z + R.z * u + sm.U.z * v);
+      nor.push(sm.T.x * sign, sm.T.y * sign, sm.T.z * sign);
+      uv.push(u * 20, v * 20);
+    }
+    for (const t of tris) {
+      const [a, b, c] = t;
+      const area = (all[b][0] - all[a][0]) * (all[c][1] - all[a][1]) - (all[c][0] - all[a][0]) * (all[b][1] - all[a][1]);
+      // CCW in (u,v) faces -T
+      if ((area > 0) === (sign < 0)) idx.push(base + a, base + b, base + c); else idx.push(base + a, base + c, base + b);
+    }
+  };
+  if (!cut && (profile.cap || profile.capOuter)) { capAt(samples[0], -1); capAt(last(samples), 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idxBy[0].concat(idxBy[1]));
+  g.addGroup(0, idxBy[0].length, 0);
+  if (idxBy[1].length) g.addGroup(idxBy[0].length, idxBy[1].length, 1);
+  return g;
+}
+
+// sleepers and guard-rail posts under a rails track
+function railTies(samples, prof) {
+  const { a, rr, vr, ga, gv } = prof.rails;
+  const geos = [], m = new THREE.Matrix4(), R = V();
+  let next = 0.01;
+  for (const sm of samples) {
+    if (sm.s < next) continue;
+    next = sm.s + 0.03;
+    R.crossVectors(sm.T, sm.U);
+    const tie = new THREE.BoxGeometry(0.004, 0.003, ga * 2 + 0.004);
+    m.makeBasis(sm.T, sm.U, R).setPosition(sm.p.clone().addScaledVector(sm.U, vr - rr - 0.0015));
+    tie.applyMatrix4(m); geos.push(tie);
+    for (const sx of [-1, 1]) {
+      const h = gv - (vr - rr - 0.003);
+      const post = new THREE.BoxGeometry(0.003, h, 0.0025);
+      m.makeBasis(sm.T, sm.U, R).setPosition(sm.p.clone().addScaledVector(R, sx * ga).addScaledVector(sm.U, gv - h / 2));
+      post.applyMatrix4(m); geos.push(post);
+    }
+  }
+  void a;
+  if (!geos.length) return null;
+  const g = mergeGeometries(geos);
+  geos.forEach(x => x.dispose());
+  return g;
+}
+
+// ---------------------------------------------------------------- materials
+const matCache = new Map();
+export function trackMaterial(color, style) {
+  const key = color + '|' + style;
+  if (matCache.has(key)) return matCache.get(key);
+  let m;
+  if (style === 'tube') {
+    const c = new THREE.Color(COLORS[color] || '#ffffff').lerp(new THREE.Color('#ffffff'), 0.55);
+    m = new THREE.MeshPhysicalMaterial({ color: c, transparent: true, opacity: 0.3, roughness: 0.05, metalness: 0, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide });
+  } else if (style === 'ply') {
+    const tint = new THREE.Color(COLORS[color] || '#ffffff').lerp(new THREE.Color('#ffffff'), color === 'wood' ? 1 : 0.55);
+    m = [
+      new THREE.MeshStandardMaterial({ map: TX.plyTexture(), color: tint, roughness: 0.7 }),
+      new THREE.MeshStandardMaterial({ map: TX.plyPlateTexture(), color: tint, roughness: 0.7, alphaTest: 0.5, side: THREE.DoubleSide }),
+    ];
+  } else if (style === 'rails') {
+    m = new THREE.MeshStandardMaterial({ color: '#d7dbe2', metalness: 0.85, roughness: 0.25 });
+  } else if (style === 'arch') {
+    m = new THREE.MeshStandardMaterial({ map: TX.brickTexture(COLORS[color] || COLORS.wood), roughness: 0.85, side: THREE.DoubleSide });
+  } else if (color === 'wood') {
+    m = new THREE.MeshStandardMaterial({ map: TX.woodTexture('#e6c08a'), roughness: 0.55 });
+  } else {
+    m = new THREE.MeshPhysicalMaterial({ color: COLORS[color] || '#ffffff', roughness: 0.32, clearcoat: 0.7, clearcoatRoughness: 0.25 });
+  }
+  matCache.set(key, m);
+  return m;
+}
+const solidMat = (color) => trackMaterial(color === 'clear' ? 'white' : color, 'solid');
+const plainMat = (hex, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: hex, roughness: 0.5 }, o));
+const MAT = {
+  pillar: new THREE.MeshStandardMaterial({ map: TX.woodTexture('#efd3a6'), roughness: 0.6 }),
+  dark: plainMat('#5b4a3a'),
+  metal: plainMat('#c9ccd3', { metalness: 0.7, roughness: 0.3 }),
+  red: plainMat('#ff4d5e', { roughness: 0.35 }),
+  black: plainMat('#2e2e38', { roughness: 0.6 }),
+  globe: new THREE.MeshPhysicalMaterial({ color: '#ffffff', transparent: true, opacity: 0.25, roughness: 0.02, clearcoat: 1, depthWrite: false }),
+  acrylic: new THREE.MeshPhysicalMaterial({ color: '#ffffff', transparent: true, opacity: 0.16, roughness: 0.05, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide }),
+  gold: new THREE.MeshStandardMaterial({ color: '#f5c242', metalness: 0.9, roughness: 0.25 }),
+  white: plainMat('#fbf8f2', { roughness: 0.4 }),
+};
+
+// ---------------------------------------------------------------- gear mesh (for the lift)
+const gearCache = new Map();
+function gearGeometry(R, teeth, depth) {
+  const key = R + '|' + teeth + '|' + depth;
+  if (gearCache.has(key)) return gearCache.get(key);
+  const sh = new THREE.Shape();
+  const Rr = R * 0.84, n = teeth;
+  for (let i = 0; i < n; i++) {
+    const a0 = i / n * TAU, a1 = (i + 0.25) / n * TAU, a2 = (i + 0.5) / n * TAU, a3 = (i + 0.75) / n * TAU;
+    const P = (a, r) => [Math.cos(a) * r, Math.sin(a) * r];
+    const p0 = P(a0, Rr), p1 = P(a1, R), p2 = P(a2, R), p3 = P(a3, Rr);
+    if (i === 0) sh.moveTo(...p0); else sh.lineTo(...p0);
+    sh.lineTo(...p1); sh.lineTo(...p2); sh.lineTo(...p3);
+  }
+  sh.closePath();
+  const holes = Math.max(3, Math.round(teeth / 4));
+  for (let i = 0; i < holes; i++) {
+    const a = i / holes * TAU, h = new THREE.Path();
+    h.absarc(Math.cos(a) * R * 0.5, Math.sin(a) * R * 0.5, R * 0.17, 0, TAU, true);
+    sh.holes.push(h);
+  }
+  const ax = new THREE.Path(); ax.absarc(0, 0, R * 0.09, 0, TAU, true); sh.holes.push(ax);
+  const g = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: true, bevelThickness: 0.0008, bevelSize: 0.0008, bevelSegments: 1, curveSegments: 6 });
+  g.translate(0, 0, -depth / 2);
+  g.userData.shared = true;
+  gearCache.set(key, g);
+  return g;
+}
+// a toothed ring (open in the middle so you can see the balls inside the water-wheel)
+function gearRingGeometry(R, Ri, teeth, depth) {
+  const key = 'ring' + R + '|' + Ri + '|' + teeth;
+  if (gearCache.has(key)) return gearCache.get(key);
+  const sh = new THREE.Shape(), Rr = R * 0.93;
+  for (let i = 0; i < teeth; i++) {
+    const P = (f, r) => [Math.cos((i + f) / teeth * TAU) * r, Math.sin((i + f) / teeth * TAU) * r];
+    if (i === 0) sh.moveTo(...P(0, Rr)); else sh.lineTo(...P(0, Rr));
+    sh.lineTo(...P(0.25, R)); sh.lineTo(...P(0.5, R)); sh.lineTo(...P(0.75, Rr));
+  }
+  sh.closePath();
+  const hole = new THREE.Path(); hole.absarc(0, 0, Ri, 0, TAU, true); sh.holes.push(hole);
+  const g = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false, curveSegments: 24 });
+  g.translate(0, 0, -depth / 2);
+  g.userData.shared = true;
+  gearCache.set(key, g);
+  return g;
+}
+
+// ---------------------------------------------------------------- devices
+export class SwitchDevice {
+  constructor(inP) { this.inP = inP; this.flipper = null; this.angle = 0; this.branches = []; }
+  initState() { return { next: 0, assign: new Map(), tick: 0 }; }
+  allow(world, b, idx) {
+    const st = world.devState(this);
+    let a = st.assign.get(b.id);
+    if (!a || world.time - a.t > 0.4) {
+      let d0 = 0, d1 = 0;
+      if (this.branches.length === 2) {
+        d0 = Math.sqrt(this.branches[0].nearest({ i: -1 }, b.pos.x, b.pos.y, b.pos.z));
+        d1 = Math.sqrt(this.branches[1].nearest({ i: -1 }, b.pos.x, b.pos.y, b.pos.z));
+      }
+      if (Math.abs(d0 - d1) < 0.004) {
+        // a ball arriving at the entrance takes the flipper's side, then the flipper flips
+        a = { idx: st.next, t: world.time };
+        st.next ^= 1;
+        world.emit('switch', this, a.idx);
+      } else {
+        // a ball coming back (or dropped in) belongs to the branch it is actually on
+        a = { idx: d0 <= d1 ? 0 : 1, t: world.time };
+      }
+      st.assign.set(b.id, a);
+    }
+    a.t = world.time;
+    return a.idx === idx;
+  }
+  step(world) {
+    const st = world.devState(this);
+    if ((++st.tick & 1023) === 0) for (const [k, a] of st.assign) if (world.time - a.t > 2) st.assign.delete(k);
+  }
+  update(world, dt) {
+    if (!this.flipper) return;
+    const target = world.devState(this).next ? -0.32 : 0.32;
+    this.angle += (target - this.angle) * Math.min(1, dt * 18);
+    this.flipper.rotation.y = this.angle;
+  }
+}
+
+export class GoalDevice {
+  constructor(center, R, yB, yTop) { this.c = center; this.R = R; this.yB = yB; this.yTop = yTop; this.label = null; this.shown = -1; }
+  initState() { return { count: 0, timers: new Map() }; }
+  step(world, dt) {
+    const st = world.devState(this), R2 = this.R * this.R;
+    for (const b of world.balls) {
+      if (b.captured || b.dead || b.collected) continue;
+      const dx = b.pos.x - this.c.x, dz = b.pos.z - this.c.z;
+      if (dx * dx + dz * dz < R2 && b.pos.y < this.yTop + 0.004 && b.pos.y > this.yB - 0.01 && b.vel.lengthSq() < 0.09) {
+        const t = (st.timers.get(b.id) || 0) + dt;
+        if (t > 0.25) { b.collected = true; st.count++; st.timers.delete(b.id); world.emit('goal', this, b); }
+        else st.timers.set(b.id, t);
+      }
+    }
+  }
+  update(world) {
+    const n = world.devState(this).count;
+    if (this.label && n !== this.shown) {
+      this.shown = n;
+      // the score badge only appears once the cup has caught something
+      this.label.visible = n > 0;
+      if (n > 0) {
+        this.label.material.map = TX.badgeTexture(String(n), '#ffb300');
+        this.label.material.needsUpdate = true;
+      }
+    }
+  }
+}
+
+export class LiftDevice {
+  constructor(o) {
+    Object.assign(this, o); // Pk, h (heading), side, H, speed, rs, exitPos, exitDir
+    this.Lc = 2 * this.H + TAU * this.rs;
+    this.N = Math.max(4, Math.round(this.Lc / 0.075));
+    this.sp = this.Lc / this.N;
+    this.F = this.Pk.clone().addScaledVector(this.h, 0.014);
+    this.links = null; this.scoops = null; this.gears = [];
+  }
+  initState() { return { carried: new Map() }; }
+  // point on the chain loop, its tangent and outward normal (in the h/up plane)
+  chain(c, P, T, N) {
+    const H = this.H, rs = this.rs, h = this.h, top = H + PI * rs, back = top + H;
+    c = ((c % this.Lc) + this.Lc) % this.Lc;
+    const F = this.F;
+    if (c < H) { P.copy(F).addScaledVector(UP, c); T.copy(UP); N.copy(h).negate(); }
+    else if (c < top) {
+      const a = (c - H) / rs; // 0..π, from front over the top to the back
+      const C = F.clone().addScaledVector(h, rs).addScaledVector(UP, H);
+      N.copy(h).multiplyScalar(-Math.cos(a)).addScaledVector(UP, Math.sin(a));
+      P.copy(C).addScaledVector(N, rs);
+      T.copy(h).multiplyScalar(Math.sin(a)).addScaledVector(UP, Math.cos(a));
+    } else if (c < back) { P.copy(F).addScaledVector(h, 2 * rs).addScaledVector(UP, H - (c - top)); T.copy(UP).negate(); N.copy(h); }
+    else {
+      const a = (c - back) / rs;
+      const C = F.clone().addScaledVector(h, rs);
+      N.copy(h).multiplyScalar(Math.cos(a)).addScaledVector(UP, -Math.sin(a));
+      P.copy(C).addScaledVector(N, rs);
+      T.copy(h).multiplyScalar(-Math.sin(a)).addScaledVector(UP, -Math.cos(a));
+    }
+  }
+  step(world, dt) {
+    const st = world.devState(this);
+    const ph0 = world.time * this.speed, ph1 = ph0 + this.speed * dt, Lc = this.Lc, sp = this.sp;
+    for (let i = 0; i < this.N; i++) {
+      if (st.carried.has(i)) continue;
+      if (Math.floor((ph1 + i * sp) / Lc) > Math.floor((ph0 + i * sp) / Lc)) {
+        let best = null, bd = 0.04 * 0.04;
+        for (const b of world.balls) {
+          if (b.captured || b.dead || b.collected) continue;
+          const d = b.pos.distanceToSquared(this.Pk);
+          if (d < bd && b.vel.lengthSq() < 0.8) { bd = d; best = b; }
+        }
+        if (best) { best.captured = { dev: this, i }; st.carried.set(i, best); world.emit('lift', this, best); }
+      }
+    }
+    for (const [i, b] of st.carried) {
+      if (b.dead || b.collected) { st.carried.delete(i); continue; }
+      const c = (ph1 + i * sp) % Lc;
+      if (c >= this.H) {
+        b.captured = null; b.cache.clear();
+        b.pos.copy(this.exitPos); b.vel.copy(this.exitDir).multiplyScalar(0.22); b.w.set(0, 0, 0);
+        world.refreshCandidates(b, 0.05);
+        st.carried.delete(i);
+        world.emit('liftdrop', this, b);
+      } else {
+        b.pos.copy(this.Pk).addScaledVector(UP, c + 0.001);
+        b.vel.set(0, this.speed, 0); b.w.multiplyScalar(0.98);
+      }
+    }
+  }
+  update(world) {
+    const ph = world.time * this.speed;
+    const P = V(), T = V(), N = V(), S = V().crossVectors(this.h, UP).normalize(), m = new THREE.Matrix4(), X = V();
+    if (this.links) {
+      const n = this.links.count, ls = this.Lc / n;
+      for (let j = 0; j < n; j++) {
+        this.chain(ph + j * ls, P, T, N);
+        X.crossVectors(S, T);
+        m.makeBasis(S, T, X).setPosition(P);
+        this.links.setMatrixAt(j, m);
+      }
+      this.links.instanceMatrix.needsUpdate = true;
+    }
+    if (this.scoops) {
+      for (let i = 0; i < this.N; i++) {
+        this.chain(ph + i * this.sp, P, T, N);
+        P.addScaledVector(N, 0.014).addScaledVector(T, -0.0115);
+        X.crossVectors(S, T);
+        m.makeBasis(S, T, X).setPosition(P);
+        this.scoops.setMatrixAt(i, m);
+      }
+      this.scoops.instanceMatrix.needsUpdate = true;
+    }
+    for (const g of this.gears) g.mesh.rotation.z = g.dir * ph / g.r;
+  }
+}
+
+// a row of dominoes: each one is a RotorBody hinged at its front edge; when one lands on the
+// next it hands over its spin
+export class DominoRow {
+  constructor(bodies) { this.bodies = bodies; }
+  initState() { return { done: [], all: false }; }
+  step(world) {
+    const st = world.devState(this), bs = this.bodies;
+    for (let i = 0; i < bs.length; i++) {
+      const s = world.devState(bs[i]);
+      if (s.hitW && !st.done[i]) {
+        st.done[i] = true;
+        world.emit('domino', this, i, -s.hitW);
+        if (i + 1 < bs.length) world.devState(bs[i + 1]).w += s.hitW * 0.8;
+      }
+      s.hitW = 0;
+    }
+    if (!st.all && bs.every(b => world.devState(b).th < -0.35)) { st.all = true; world.emit('dominoes', this); }
+  }
+  reset(world) { world.state.delete(this); for (const b of this.bodies) world.state.delete(b); }
+}
+
+export class BellDevice {
+  constructor(size) { this.size = size; this.holder = null; this.t = 10; this.amp = 0; }
+  ring(v) { this.t = 0; this.amp = Math.min(0.35, 0.08 + v * 0.12); }
+  update(world, dt) {
+    this.t += dt;
+    if (this.holder) this.holder.rotation.z = Math.sin(this.t * 22) * this.amp * Math.exp(-this.t * 3);
+  }
+}
+
+export class BumperDevice {
+  constructor() { this.cap = null; this.t = 10; }
+  flash() { this.t = 0; }
+  update(world, dt) {
+    this.t += dt;
+    if (this.cap) { const k = Math.exp(-this.t * 7); this.cap.material.emissiveIntensity = 0.2 + k * 2.5; this.cap.scale.setScalar(1 + k * 0.15); }
+  }
+}
+
+export class TrampolineDevice {
+  constructor() { this.pad = null; this.t = 10; }
+  bounce() { this.t = 0; }
+  update(world, dt) {
+    this.t += dt;
+    if (this.pad) this.pad.position.y = -0.0015 - Math.exp(-this.t * 8) * Math.abs(Math.sin(this.t * 40)) * 0.008;
+  }
+}
+
+// ---------------------------------------------------------------- piece catalog
+const CUP_SURF = SURFACES.plastic;
+
+function funnelParts(B, center, yRim, Rf, inPort, side, phiOut) {
+  const rhoW = Rf + RC + 0.002, rhoH = RC, D = 0.045 + Rf * 0.25;
+  const k = D / (1 / rhoH - 1 / rhoW);
+  const top = [];
+  for (let i = 0; i <= 30; i++) { const t = i / 30, rho = rhoH + (rhoW - rhoH) * t * t; top.push([rho, -k * (1 / rho - 1 / rhoW)]); }
+  const bottom = top.map(([r, h]) => [r, h - 0.004]);
+  const thP = Math.atan2(-(inPort.p.z - center.z), inPort.p.x - center.x);
+  const gap = side > 0 ? [thP - 1.0, thP + 0.06] : [thP - 0.06, thP + 1.0];
+  const prims = [
+    ...polyline(top), ...polyline(bottom), seg(rhoH, -D, rhoH, -D - 0.004),
+    seg(rhoW, -0.001, rhoW, 0.022, { gap }), seg(rhoW, 0.022, rhoW + TH, 0.022, { gap }), seg(rhoW + TH, 0.022, rhoW + TH, -0.004, { gap }),
+  ];
+  const C = V(center.x, yRim, center.z);
+  B.colliders.push(new RevolveCollider(C, UP, V(1, 0, 0), prims, SURFACES.plastic));
+  // meshes
+  const lathePts = [...top.map(([r, h]) => new THREE.Vector2(r, h)), new THREE.Vector2(rhoW, -0.004), ...bottom.slice().reverse().map(([r, h]) => new THREE.Vector2(r, h)), new THREE.Vector2(rhoH, -D)];
+  const bowl = new THREE.Mesh(new THREE.LatheGeometry(lathePts, 64), null);
+  bowl.position.copy(C); bowl.userData.paint = 'spiral';
+  const wallPts = [new THREE.Vector2(rhoW, -0.004), new THREE.Vector2(rhoW, 0.022), new THREE.Vector2(rhoW + TH, 0.022), new THREE.Vector2(rhoW + TH, -0.004)];
+  const gl = gap[1] - gap[0];
+  const wallM = new THREE.Mesh(new THREE.LatheGeometry(wallPts, 64, gap[1] + PI / 2, TAU - gl), null);
+  wallM.position.copy(C); wallM.userData.paint = 'solid';
+  B.meshes.push(bowl, wallM);
+  // exit tube, straight down then bending to the exit heading
+  const psi = inPort.psi, rb = 0.035, Ld = 0.03, La = (PI / 2 - phiOut) * rb, Lh = 0.03;
+  const ex0 = V(center.x, yRim - D + 0.006, center.z);
+  const s = turtle(ex0, Ld + La + Lh, x => ({ psi, phi: x < Ld ? PI / 2 : x < Ld + La ? PI / 2 + (x - Ld) / La * (phiOut - PI / 2) : phiOut }));
+  B.paths.push({ samples: s, profile: 'tube', margin0: 0 });
+  B.outs.push(endPort(s, psi, phiOut));
+  // legs
+  for (let i = 0; i < 3; i++) {
+    const a = thP + PI / 3 + i * TAU / 3;
+    B.pillarPts.push(V(center.x + Math.cos(a) * rhoW * 0.75, yRim - k * (1 / (rhoW * 0.75) - 1 / rhoW) - 0.006, center.z - Math.sin(a) * rhoW * 0.75));
+  }
+  // rim probes, except along the open entry gap where the incoming track lies
+  B.probes = B.probes || [];
+  for (let i = 0; i < 16; i++) {
+    const th = i / 16 * TAU;
+    let a = th - gap[0]; a -= Math.floor(a / TAU) * TAU;
+    if (a < gap[1] - gap[0] + 0.3) continue;
+    B.probes.push(V(C.x + Math.cos(th) * rhoW, yRim + 0.01, C.z - Math.sin(th) * rhoW));
+  }
+  ringProbes(B, C, rhoW * 0.6, yRim - k * (1 / (rhoW * 0.6) - 1 / rhoW), 10);
+  B.radius = rhoW;
+}
+
+function cupParts(B, center, Rc, depth, yTop, surf = CUP_SURF) {
+  const yB = yTop - depth;
+  const prims = [seg(0, -depth, Rc, -depth), seg(Rc, -depth, Rc, 0), seg(Rc, 0, Rc + 0.004, 0), seg(Rc + 0.004, 0, Rc + 0.004, -depth - 0.005), seg(0, -depth - 0.005, Rc + 0.004, -depth - 0.005)];
+  const C = V(center.x, yTop, center.z);
+  B.colliders.push(new RevolveCollider(C, UP, V(1, 0, 0), prims, surf));
+  const pts = [[0.0001, -depth], [Rc, -depth], [Rc, 0], [Rc + 0.004, 0], [Rc + 0.004, -depth - 0.005], [0.0001, -depth - 0.005]].map(([a, b]) => new THREE.Vector2(a, b));
+  const cup = new THREE.Mesh(new THREE.LatheGeometry(pts, 48), null);
+  cup.position.copy(C); cup.userData.paint = 'solid';
+  B.meshes.push(cup);
+  // star sticker + counter
+  const star = new THREE.Mesh(new THREE.CircleGeometry(Rc * 0.45, 5), plainMat('#ffd23f', { emissive: '#ffb000', emissiveIntensity: 0.3 }));
+  star.rotation.x = -PI / 2; star.position.set(center.x, yB + 0.0008, center.z);
+  B.meshes.push(star);
+  const goal = new GoalDevice(V(center.x, 0, center.z), Rc, yB, yTop);
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true }));
+  label.visible = false;
+  label.scale.set(0.034, 0.034, 1); label.position.set(center.x, yTop + 0.045, center.z); label.renderOrder = 5;
+  label.raycast = () => {};
+  goal.label = label;
+  B.meshes.push(label);
+  B.devices.push(goal);
+  B.pillarPts.push(V(center.x, yB - 0.006, center.z));
+  ringProbes(B, C, Rc, yTop, 10);
+  B.probes.push(V(center.x, yB, center.z));
+  B.radius = Rc;
+}
+
+function addStop(B, pos, psi, along = 0.003) {
+  const c = new BoxCollider(pos.x, pos.y, pos.z, along, 0.02, RC + TH, psi, SURFACES.wood);
+  B.colliders.push(c);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(along * 2, 0.04, (RC + TH) * 2), null);
+  m.position.copy(pos); m.rotation.y = psi; m.userData.paint = 'solid';
+  B.meshes.push(m);
+}
+
+export const PIECES = {
+  start: {
+    label: 'Start Tower', kind: 'place', defaults: { height: 0.45 },
+    build(d, B) {
+      const base = V(d.port.x, d.port.y, d.port.z), psi = d.port.psi, H = d.opts.height;
+      const top = base.clone().add(V(0, H, 0));
+      const L = 0.085, phi0 = 0.95, phi1 = d.slope;
+      const s = turtle(top, L, x => ({ psi, phi: phi0 + (phi1 - phi0) * (x / L) }));
+      B.paths.push({ samples: s, profile: 'channel', margin0: 0.02 });
+      B.outs.push(endPort(s, psi, phi1));
+      const h = heading(psi);
+      addStop(B, top.clone().addScaledVector(h, -0.014).add(V(0, 0.012, 0)), psi);
+      B.spawn = top.clone().add(V(0, 0.04, 0)).addScaledVector(h, 0.006);
+      // tower, base, globe and the big red button
+      const col = d.color === 'wood' ? 'wood' : d.color;
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, H - 0.02, 20), null);
+      pillar.position.copy(base).add(V(0, (H - 0.02) / 2, 0)).addScaledVector(h, -0.004); pillar.userData.paint = 'solid';
+      const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.012, 32), null);
+      foot.position.copy(base).add(V(0, 0.006, 0)); foot.userData.paint = 'solid';
+      const g0 = top.clone().add(V(0, 0.085, 0)).addScaledVector(h, -0.004);
+      const globe = new THREE.Mesh(new THREE.SphereGeometry(0.048, 32, 20), MAT.globe);
+      globe.position.copy(g0);
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(RC + TH, RC + TH, 0.05, 20, 1, true), MAT.globe);
+      neck.position.copy(top).add(V(0, 0.055, 0)).addScaledVector(h, 0.004);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.048, 0.006, 10, 40), null);
+      ring.position.copy(g0); ring.rotation.x = PI / 2; ring.userData.paint = 'solid';
+      const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.02, 24), MAT.red);
+      btn.position.copy(g0).add(V(0, 0.054, 0)); btn.userData.release = true;
+      B.meshes.push(pillar, foot, globe, neck, ring, btn);
+      const mcols = ['#ff5d5d', '#4c8dff', '#ffd23f', '#3ccf7a', '#9b6bff'];
+      for (let i = 0; i < 5; i++) {
+        const mb = new THREE.Mesh(new THREE.SphereGeometry(0.0095, 16, 12), new THREE.MeshPhysicalMaterial({ color: mcols[i], roughness: 0.1, clearcoat: 1 }));
+        mb.position.copy(g0).add(V(Math.cos(i * 2.4) * 0.022, -0.03 + (i > 2 ? 0.018 : 0), Math.sin(i * 2.4) * 0.022));
+        B.meshes.push(mb);
+      }
+      B.releaseBtn = btn;
+      B.noPillars = true;
+      B.probes = [g0.clone()];
+      for (let y = base.y + 0.05; y < top.y - 0.03; y += 0.05) B.probes.push(V(base.x, y, base.z));
+      void col;
+    },
+  },
+  straight: {
+    label: 'Straight', kind: 'append', defaults: { len: 0.2 },
+    build(d, B, P) {
+      const L = d.opts.len, ph1 = d.slope;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
+      B.paths.push({ samples: s, profile: d.style });
+      B.outs.push(endPort(s, P.psi, ph1));
+    },
+  },
+  curve: {
+    label: 'Curve', kind: 'append', defaults: { angle: 90, radius: 0.12, dir: 1 },
+    build(d, B, P) {
+      const ang = d.opts.angle * PI / 180, R = d.opts.radius, dir = d.opts.dir, L = ang * R, ph1 = d.slope;
+      const s = turtle(P.p, L, x => ({ psi: P.psi + dir * ang * x / L, phi: lerpE(P.phi, ph1, x / L) }));
+      B.paths.push({ samples: s, profile: d.style });
+      B.outs.push(endPort(s, P.psi + dir * ang, ph1));
+    },
+  },
+  helix: {
+    label: 'Spiral', kind: 'append', defaults: { turns: 1, radius: 0.11, dir: 1 },
+    build(d, B, P) {
+      const R = d.opts.radius, n = d.opts.turns, dir = d.opts.dir;
+      const phH = Math.max(d.slope, 0.09);
+      const L = TAU * R * n / Math.cos(phH), Le = Math.min(0.1, L * 0.12);
+      const s = turtle(P.p, L, x => {
+        const ramp = Math.min(ease(x / Le), ease((L - x) / Le));
+        return { psi: P.psi + dir * TAU * n * x / L, phi: lerpE(P.phi, phH, x / Le), bank: -dir * 0.22 * ramp };
+      });
+      B.paths.push({ samples: s, profile: d.style });
+      B.outs.push(endPort(s, P.psi + dir * TAU * n, phH));
+    },
+  },
+  loop: {
+    label: 'Loop', kind: 'append', defaults: { radius: 0.08 },
+    build(d, B, P) {
+      const R = d.opts.radius, w = 0.046;
+      const a = turtle(P.p, 0.06, x => ({ psi: P.psi, phi: lerpE(P.phi, 0, x / 0.06) }));
+      const L0 = last(a).p.clone(), h = heading(P.psi), rv = V().crossVectors(h, UP);
+      const N = Math.ceil(TAU * R / 0.006);
+      const lp = [];
+      let sAcc = last(a).s, prev = L0.clone();
+      for (let i = 0; i <= N; i++) {
+        const th = i / N * TAU;
+        const sh = w * (th - Math.sin(th)) / TAU;
+        const p = L0.clone().addScaledVector(h, R * Math.sin(th)).addScaledVector(UP, R * (1 - Math.cos(th))).addScaledVector(rv, sh);
+        const T = h.clone().multiplyScalar(R * Math.cos(th)).addScaledVector(UP, R * Math.sin(th)).addScaledVector(rv, w * (1 - Math.cos(th)) / TAU).normalize();
+        const c = L0.clone().addScaledVector(UP, R).addScaledVector(rv, sh);
+        const U = c.sub(p); U.addScaledVector(T, -U.dot(T)).normalize();
+        sAcc += p.distanceTo(prev); prev = p;
+        lp.push(new Sample(p, T, U, sAcc));
+      }
+      join(a, lp);
+      const b = turtle(last(a).p, 0.06, x => ({ psi: P.psi, phi: lerpE(0, d.slope, x / 0.06) }), last(a).s);
+      join(a, b);
+      B.paths.push({ samples: a, profile: d.style });
+      B.outs.push(endPort(a, P.psi, d.slope));
+    },
+  },
+  drop: {
+    label: 'Drop Tube', kind: 'append', defaults: { height: 0.2 },
+    build(d, B, P) {
+      const H = d.opts.height, rb = 0.045, ph1 = d.slope;
+      const L1 = Math.max(0.01, (PI / 2 - P.phi) * rb), L2 = (PI / 2 - ph1) * rb, L = L1 + H + L2;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: x < L1 ? P.phi + (x / L1) * (PI / 2 - P.phi) : x < L1 + H ? PI / 2 : PI / 2 + (x - L1 - H) / L2 * (ph1 - PI / 2) }));
+      B.paths.push({ samples: s, profile: 'tube' });
+      B.outs.push(endPort(s, P.psi, ph1));
+    },
+  },
+  jump: {
+    label: 'Jump Ramp', kind: 'append', defaults: { angle: 30 },
+    build(d, B, P) {
+      const L = 0.12, end = -d.opts.angle * PI / 180;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, end, x / L) }));
+      B.paths.push({ samples: s, profile: 'channel', margin1: 0 });
+      B.outs.push(endPort(s, P.psi, end));
+    },
+  },
+  switch: {
+    label: 'Flip-Flop', kind: 'append', defaults: {},
+    build(d, B, P) {
+      const L = 0.18, A = 0.4, ph1 = Math.max(d.slope, 0.04);
+      const dev = new SwitchDevice(P.p.clone());
+      for (const side of [1, -1]) {
+        const s = turtle(P.p, L, x => ({ psi: P.psi + side * A * Math.sin(PI * x / L), phi: lerpE(P.phi, ph1, x / L) }));
+        B.paths.push({ samples: s, profile: 'channel', cut: { side: side > 0 ? 1 : -1, s0: L * 0.55 }, branchDev: dev, branchIdx: side > 0 ? 0 : 1 });
+        B.outs.push(endPort(s, P.psi, ph1));
+      }
+      const fl = new THREE.Group();
+      const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.004), MAT.red);
+      paddle.position.set(0.03, 0, 0); fl.add(paddle);
+      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.03, 12), MAT.metal);
+      fl.add(pin);
+      fl.position.copy(P.p).addScaledVector(heading(P.psi), 0.05).add(V(0, -0.004, 0));
+      const holder = new THREE.Group(); holder.position.copy(fl.position); holder.rotation.y = P.psi; fl.position.set(0, 0, 0); holder.add(fl);
+      dev.flipper = fl;
+      B.meshes.push(holder);
+      B.devices.push(dev);
+    },
+  },
+  xylo: {
+    label: 'Xylophone', kind: 'append', defaults: {},
+    build(d, B, P) {
+      const L = 0.42, ph1 = Math.max(d.slope, 0.06);
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
+      const bars = [];
+      for (let k = 0; k < 8; k++) bars.push(0.045 + k * 0.047);
+      const onRoll = (world, b, sNow, ce) => {
+        if (ce.ls >= 0) for (let k = 0; k < bars.length; k++) {
+          const sb = bars[k];
+          if ((ce.ls < sb && sNow >= sb) || (ce.ls > sb && sNow <= sb)) world.emit('note', k, b);
+        }
+        ce.ls = sNow;
+      };
+      B.paths.push({ samples: s, profile: 'flat', onRoll });
+      B.outs.push(endPort(s, P.psi, ph1));
+      const rainbow = ['#ff5d5d', '#ff9f43', '#ffd23f', '#3ccf7a', '#2ec4b6', '#4c8dff', '#9b6bff', '#ff77b7'];
+      const findAt = (sv) => s.reduce((a, c) => Math.abs(c.s - sv) < Math.abs(a.s - sv) ? c : a);
+      bars.forEach((sb, k) => {
+        const sm = findAt(sb);
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.004, RC * 2 + 0.002), plainMat(rainbow[k], { roughness: 0.25, metalness: 0.2 }));
+        const R = V().crossVectors(sm.T, sm.U);
+        m.matrixAutoUpdate = false;
+        const pos = sm.p.clone().addScaledVector(sm.U, -RC - 0.0019);
+        m.matrix.makeBasis(sm.T, sm.U, R).setPosition(pos);
+        B.meshes.push(m);
+      });
+    },
+  },
+  funnel: {
+    label: 'Funnel', kind: 'append', defaults: { size: 0.1, dir: 1 },
+    build(d, B, P) {
+      const Rf = d.opts.size, side = d.opts.dir;
+      const c = P.p.clone().addScaledVector(leftOf(P.psi), side * Rf);
+      funnelParts(B, c, P.p.y - RC - 0.0015, Rf, P, side, d.slope);
+    },
+  },
+  lift: {
+    label: 'Lift', kind: 'append', defaults: { height: 0.3, exit: 'back' },
+    build(d, B, P) {
+      const H = d.opts.height, h = heading(P.psi), S = V().crossVectors(h, UP).normalize();
+      const inlet = turtle(P.p, 0.06, x => ({ psi: P.psi, phi: lerpE(P.phi, 0.03, x / 0.06) }));
+      B.paths.push({ samples: inlet, profile: 'channel', margin1: 0.02 });
+      const E = last(inlet).p;
+      addStop(B, E.clone().addScaledVector(h, 0.0145).add(V(0, 0.004, 0)), P.psi);
+      const r = 0.0095;
+      const Pk = E.clone().addScaledVector(h, 0.011 - r).add(V(0, -(RC - r), 0));
+      const exitPsi = P.psi + (d.opts.exit === 'left' ? PI / 2 : d.opts.exit === 'right' ? -PI / 2 : PI);
+      const xs = Pk.clone().add(V(0, H + (RC - r) + 0.004, 0)).addScaledVector(heading(exitPsi), 0.012);
+      const ex = turtle(xs, 0.1, x => ({ psi: exitPsi, phi: lerpE(0.12, d.slope, x / 0.1) }));
+      B.paths.push({ samples: ex, profile: 'channel', margin0: 0.02 });
+      B.outs.push(endPort(ex, exitPsi, d.slope));
+      addStop(B, xs.clone().addScaledVector(heading(exitPsi), -0.017).add(V(0, 0.006, 0)), exitPsi);
+      const rs = 0.03;
+      const dev = new LiftDevice({ Pk, h, H, speed: 0.24, rs, exitPos: xs.clone().add(V(0, -(RC - r) + 0.002, 0)).addScaledVector(heading(exitPsi), 0.01), exitDir: heading(exitPsi) });
+      B.devices.push(dev);
+      // chain + scoops
+      const nl = Math.round(dev.Lc / 0.012);
+      const links = new THREE.InstancedMesh(new THREE.BoxGeometry(0.008, 0.011, 0.004), MAT.dark, nl);
+      const scoopGeo = mergeGeometries([new THREE.BoxGeometry(0.024, 0.003, 0.022).translate(0, 0, 0), new THREE.BoxGeometry(0.024, 0.016, 0.003).translate(0, 0.007, -0.011)]);
+      const scoops = new THREE.InstancedMesh(scoopGeo, MAT.red, dev.N);
+      links.frustumCulled = scoops.frustumCulled = false;
+      dev.links = links; dev.scoops = scoops;
+      B.meshes.push(links, scoops);
+      // sprockets + decorative gear + frame
+      const mkGear = (R, teeth, center, dir, paint) => {
+        const g = new THREE.Mesh(gearGeometry(R, teeth, 0.006), null);
+        const holder = new THREE.Group();
+        holder.position.copy(center);
+        holder.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(h, UP, S.clone().negate()));
+        holder.add(g); g.userData.paint = paint;
+        dev.gears.push({ mesh: g, r: R, dir });
+        B.meshes.push(holder);
+        return holder;
+      };
+      const Ct = dev.F.clone().addScaledVector(h, rs).addScaledVector(UP, H), Cb = dev.F.clone().addScaledVector(h, rs);
+      mkGear(rs * 1.05, 12, Ct.clone().addScaledVector(S, 0.006), 1, 'solid');
+      mkGear(rs * 1.05, 12, Cb.clone().addScaledVector(S, 0.006), 1, 'solid');
+      mkGear(rs * 1.6, 18, Ct.clone().addScaledVector(h, rs * 2.65).addScaledVector(S, 0.012), -1.05 / 1.6, 'wood');
+      const crank = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.05, 8), MAT.metal);
+      crank.position.copy(Ct).addScaledVector(h, rs * 2.65).addScaledVector(S, 0.036); crank.rotation.x = PI / 2;
+      crank.quaternion.setFromUnitVectors(UP, S);
+      B.meshes.push(crank);
+      for (const sgn of [1, -1]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.01, H + 0.12, 0.012), null);
+        post.position.copy(dev.F).addScaledVector(h, rs).addScaledVector(S, sgn * 0.024).add(V(0, H / 2, 0));
+        post.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(h, UP, S.clone().negate()));
+        post.userData.paint = 'solid';
+        B.meshes.push(post);
+        B.pillarPts.push(post.position.clone().add(V(0, -H / 2 - 0.06, 0)));
+      }
+      B.liftTop = Ct;
+      B.probes = [];
+      for (let y = 0.03; y <= H + rs; y += 0.03) B.probes.push(dev.F.clone().addScaledVector(h, rs).add(V(0, y, 0)));
+      B.probes.push(Ct.clone().addScaledVector(h, rs * 2.65));
+    },
+  },
+  cup: {
+    label: 'Goal Cup', kind: 'append', defaults: {},
+    build(d, B, P) {
+      const Rc = 0.04, h = heading(P.psi), c = P.p.clone().addScaledVector(h, Rc + 0.003);
+      const yTop = P.p.y - RC - 0.004;
+      cupParts(B, c, Rc, 0.05, yTop);
+      // backboard so fast balls bounce down into the cup
+      const bb = c.clone().addScaledVector(h, Rc + 0.006); bb.y = yTop + 0.035;
+      B.colliders.push(new BoxCollider(bb.x, bb.y, bb.z, 0.003, 0.04, Rc + 0.01, P.psi, SURFACES.wood));
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.08, (Rc + 0.01) * 2), null);
+      m.position.copy(bb); m.rotation.y = P.psi; m.userData.paint = 'solid';
+      B.meshes.push(m);
+      const side = leftOf(P.psi);
+      for (const f of [-1, 0, 1]) for (const dy of [0, 0.035]) B.probes.push(bb.clone().addScaledVector(side, f * (Rc + 0.005)).add(V(0, dy, 0)));
+    },
+  },
+  catcher: {
+    label: 'Catcher', kind: 'place', defaults: { height: 0.3, size: 0.17 },
+    build(d, B) {
+      const base = V(d.port.x, d.port.y, d.port.z), psi = d.port.psi, Rf = d.opts.size;
+      const D = 0.045 + Rf * 0.25, H = Math.max(d.opts.height, D + 0.12);
+      const yRim = base.y + H, inP = { p: base.clone().addScaledVector(leftOf(psi), -Rf), psi, phi: 0 };
+      inP.p.y = yRim + RC + 0.0015;
+      funnelParts(B, V(base.x, 0, base.z), yRim, Rf, inP, 1, d.slope);
+      B.ins.push(inP);
+      for (let y = base.y + 0.05; y < yRim - D - 0.05; y += 0.05) B.probes.push(V(base.x, y, base.z));
+    },
+  },
+  basket: {
+    label: 'Basket', kind: 'place', defaults: { height: 0.0 },
+    build(d, B) {
+      const base = V(d.port.x, d.port.y, d.port.z), Rc = 0.07, depth = 0.07;
+      // a soft fabric basket: it swallows the bounce
+      cupParts(B, base, Rc, depth, base.y + d.opts.height + depth + 0.005, SURFACES.soft);
+      B.ins.push({ p: base.clone().add(V(0, d.opts.height + depth + 0.03, 0)).addScaledVector(heading(d.port.psi), -Rc - 0.004), psi: d.port.psi, phi: 0 });
+      if (d.opts.height < 0.02) B.pillarPts.length = 0;
+    },
+  },
+  tramp: {
+    label: 'Trampoline', kind: 'place', defaults: { height: 0.07, tilt: 20 },
+    build(d, B) {
+      const base = V(d.port.x, d.port.y, d.port.z), psi = d.port.psi, R = 0.065, tilt = d.opts.tilt * PI / 180;
+      const h = heading(psi), n = V().addScaledVector(h, Math.sin(tilt)).addScaledVector(UP, Math.cos(tilt)).normalize();
+      const C = base.clone().add(V(0, d.opts.height + R * Math.sin(tilt), 0));
+      const e1 = V().crossVectors(n, V().crossVectors(h, UP)).normalize();
+      const dev = new TrampolineDevice();
+      const prims = [seg(0, 0, R, 0), arc(R + 0.006, 0.002, 0.006, 0, TAU), seg(0, -0.004, R, -0.004)];
+      const col = new RevolveCollider(C, n, e1, prims, SURFACES.trampoline, { device: dev });
+      col.device = dev;
+      B.colliders.push(col);
+      B.devices.push(dev);
+      const holder = new THREE.Group();
+      holder.position.copy(C);
+      holder.quaternion.setFromUnitVectors(UP, n);
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 0.003, 40), plainMat('#30305a', { roughness: 0.8 }));
+      pad.position.y = -0.0015;
+      dev.pad = pad;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(R + 0.006, 0.006, 12, 48), null);
+      ring.rotation.x = PI / 2; ring.position.y = 0.002; ring.userData.paint = 'solid';
+      holder.add(pad, ring);
+      B.meshes.push(holder);
+      for (let i = 0; i < 4; i++) {
+        const a = i * PI / 2 + PI / 4;
+        const lp = V(Math.cos(a) * (R + 0.006), 0, Math.sin(a) * (R + 0.006)).applyQuaternion(holder.quaternion).add(C);
+        B.pillarPts.push(lp);
+      }
+      ringProbes(B, C, R, C.y, 10);
+      B.probes.push(C.clone());
+      B.radius = R;
+    },
+  },
+  tunnel: {
+    label: 'Tunnel', kind: 'append', defaults: { len: 0.25 },
+    build(d, B, P) {
+      const L = d.opts.len, ph1 = d.slope;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
+      B.paths.push({ samples: s, profile: d.style === 'tube' ? 'channel' : d.style, arch: true });
+      B.outs.push(endPort(s, P.psi, ph1));
+    },
+  },
+  wheel: {
+    label: 'Water Wheel', kind: 'append', defaults: { size: 0.075 },
+    build(d, B, P) {
+      const R = d.opts.size, w = RC + 0.0025, hub = 0.012;
+      const h = heading(P.psi), S = V().crossVectors(h, UP).normalize();
+      const lead = turtle(P.p, 0.05, x => ({ psi: P.psi, phi: lerpE(P.phi, 0.03, x / 0.05) }));
+      B.paths.push({ samples: lead, profile: 'channel', margin1: 0.008 });
+      const E = last(lead).p;
+      const C = E.clone().addScaledVector(h, R * 0.55).add(V(0, -(RC + 0.012 + R), 0));
+      // static: side plates, hub, and the front casing that keeps a ball in its bucket on the way down
+      B.colliders.push(new RevolveCollider(C, S, h, [
+        seg(0, -w - 0.0015, R + 0.006, -w - 0.0015), seg(0, w + 0.0015, R + 0.006, w + 0.0015),
+        seg(hub, -w, hub, w),
+        seg(R + 0.004, -w - 0.0015, R + 0.004, w + 0.0015, { gap: [70 * DEG, 300 * DEG] }),
+      ], SURFACES.plastic));
+      // a clear guard above the front, so a fast ball is knocked down into a bucket instead of flying over
+      const guard = C.clone().addScaledVector(h, R + 0.006).add(V(0, R * 0.94 + 0.03, 0));
+      B.colliders.push(new BoxCollider(guard.x, guard.y, guard.z, 0.002, 0.032, w + 0.0015, P.psi, SURFACES.plastic));
+      const gm = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.064, (w + 0.0015) * 2), MAT.acrylic);
+      gm.position.copy(guard); gm.rotation.y = P.psi;
+      B.meshes.push(gm);
+      // the paddles turn freely: the balls' weight drives the wheel
+      const boxes = [], N = 8, rc = (hub + R) / 2;
+      for (let k = 0; k < N; k++) { const a = k / N * TAU; boxes.push({ x: Math.cos(a) * rc, y: Math.sin(a) * rc, z: 0, phi: a, hu: (R - hub) / 2, hv: 0.0015, hw: w - 0.0008 }); }
+      const body = new RotorBody({ pivot: C.clone(), axis: S, e1: h, boxes, J: 0.6 * 0.035 * R * R, damping: 4e-4, friction: 3e-5, surf: SURFACES.wood });
+      B.colliders.push(body.collider); B.devices.push(body);
+      const xs = C.clone().add(V(0, -(R + 0.032), 0)).addScaledVector(h, -0.005);
+      const ex = turtle(xs, 0.13, x => ({ psi: P.psi, phi: lerpE(0.05, d.slope, x / 0.13) }));
+      B.paths.push({ samples: ex, profile: 'channel', margin0: 0.02 });
+      B.outs.push(endPort(ex, P.psi, d.slope));
+      addStop(B, xs.clone().addScaledVector(h, -0.017).add(V(0, 0.006, 0)), P.psi);
+      // looks
+      const holder = new THREE.Group();
+      holder.position.copy(C);
+      holder.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(h, UP, S));
+      const spin = new THREE.Group(); holder.add(spin);
+      for (const bx of boxes) { const m = new THREE.Mesh(new THREE.BoxGeometry(bx.hu * 2, bx.hv * 2, bx.hw * 2), null); m.position.set(bx.x, bx.y, 0); m.rotation.z = bx.phi; m.userData.paint = 'solid'; spin.add(m); }
+      for (const sz of [-1, 1]) { const disc = new THREE.Mesh(new THREE.CircleGeometry(R + 0.006, 40), MAT.acrylic); disc.position.z = sz * (w + 0.0015); spin.add(disc); }
+      const ring = new THREE.Mesh(gearRingGeometry(R + 0.012, R - 0.004, 30, 0.004), null); ring.position.z = w + 0.0045; ring.userData.paint = 'wood'; spin.add(ring);
+      const ring2 = new THREE.Mesh(gearRingGeometry(R + 0.012, R - 0.004, 30, 0.004), null); ring2.position.z = -w - 0.0045; ring2.userData.paint = 'wood'; spin.add(ring2);
+      const hubM = new THREE.Mesh(new THREE.CylinderGeometry(hub, hub, w * 2, 16), null); hubM.rotation.x = PI / 2; hubM.userData.paint = 'solid'; spin.add(hubM);
+      const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, w * 2 + 0.05, 10), MAT.metal); axle.rotation.x = PI / 2; holder.add(axle);
+      const casing = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.0045, R + 0.0045, w * 2 + 0.003, 32, 1, true, 30 * DEG, 130 * DEG).rotateX(PI / 2), MAT.acrylic);
+      holder.add(casing);
+      for (const sz of [-1, 1]) {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(R * 0.7, 0.006, 0.006), MAT.dark);
+        arm.position.set(-R * 0.35, 0, sz * (w + 0.025)); holder.add(arm);
+        B.pillarPts.push(C.clone().addScaledVector(h, -R * 0.7).addScaledVector(S, sz * (w + 0.025)).add(V(0, -0.003, 0)));
+      }
+      body.view = (th) => { spin.rotation.z = th; };
+      B.meshes.push(holder);
+      B.probes = [];
+      for (let k = 0; k < 10; k++) { const a = k / 10 * TAU; B.probes.push(C.clone().addScaledVector(h, Math.cos(a) * R).addScaledVector(UP, Math.sin(a) * R)); }
+    },
+  },
+  seesaw: {
+    label: 'Seesaw', kind: 'append', defaults: {},
+    build(d, B, P) {
+      const h = heading(P.psi), S = V().crossVectors(h, UP).normalize();
+      // the pivot sits close to the entrance so even a slow ball rolls past it
+      const near = 0.02, far = 0.14, top = 3 * DEG, bottom = -14 * DEG;
+      const dirAt = (th) => h.clone().multiplyScalar(Math.cos(th)).addScaledVector(UP, Math.sin(th));
+      // at rest the near end sits just under the incoming track
+      const pivot = P.p.clone().add(V(0, -RC - 0.0015, 0)).addScaledVector(dirAt(top), near);
+      const mid = (far - near) / 2, hl = (far + near) / 2, wz = RC + 0.0015;
+      const boxes = [
+        { x: mid, y: -0.002, z: 0, hu: hl, hv: 0.002, hw: wz + 0.0015 },
+        { x: mid, y: 0.009, z: -wz, hu: hl, hv: 0.011, hw: 0.0015 },
+        { x: mid, y: 0.009, z: wz, hu: hl, hv: 0.011, hw: 0.0015 },
+      ];
+      // a counterweight under the near end holds it down until a ball rolls past the pivot
+      // a light balsa plank: even a 1 g ball a couple of cm past the pivot outweighs it
+      const body = new RotorBody({ pivot, axis: S, e1: h, boxes, J: 2e-5, mass: 0.006, com: [-0.0035, -0.004], damping: 4e-5, min: bottom, max: top, th0: top, bounce: 0.15, surf: SURFACES.wood });
+      B.colliders.push(body.collider); B.devices.push(body);
+      const tip = pivot.clone().addScaledVector(dirAt(bottom), far);
+      const xs = tip.clone().addScaledVector(h, 0.008).add(V(0, RC - 0.006, 0));
+      const ex = turtle(xs, 0.1, x => ({ psi: P.psi, phi: lerpE(0.08, d.slope, x / 0.1) }));
+      B.paths.push({ samples: ex, profile: 'channel', margin0: 0.015 });
+      B.outs.push(endPort(ex, P.psi, d.slope));
+      const holder = new THREE.Group();
+      holder.position.copy(pivot);
+      holder.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(h, UP, S));
+      const plank = new THREE.Group(); holder.add(plank);
+      for (const bx of boxes) { const m = new THREE.Mesh(new THREE.BoxGeometry(bx.hu * 2, bx.hv * 2, bx.hw * 2), null); m.position.set(bx.x, bx.y, bx.z); m.userData.paint = 'solid'; plank.add(m); }
+      const cw = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.012, wz * 2), MAT.dark); cw.position.set(-near + 0.012, -0.01, 0); plank.add(cw);
+      const fulcrum = new THREE.Mesh(new THREE.CylinderGeometry(0.001, 0.016, 0.026, 3), null);
+      fulcrum.userData.paint = 'wood'; fulcrum.position.set(0, -0.017, 0); fulcrum.rotation.y = PI / 2; holder.add(fulcrum);
+      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, wz * 2 + 0.012, 8), MAT.metal); pin.rotation.x = PI / 2; holder.add(pin);
+      body.view = (th) => { plank.rotation.z = th; };
+      B.meshes.push(holder);
+      B.pillarPts.push(pivot.clone().add(V(0, -0.03, 0)));
+      B.probes = [];
+      for (const th of [top, bottom]) for (const x of [-near, 0, far * 0.5, far]) B.probes.push(pivot.clone().addScaledVector(dirAt(th), x));
+    },
+  },
+  dominoes: {
+    label: 'Dominoes', kind: 'place', defaults: { count: 10 },
+    build(d, B) {
+      const base = V(d.port.x, d.port.y, d.port.z), h = heading(d.port.psi), S = V().crossVectors(h, UP).normalize();
+      const N = d.opts.count, T = 0.008, W = 0.032, H = 0.05, gap = 0.032, m = 0.006;
+      const hit = -Math.asin((gap - T) / H);
+      const bodies = [];
+      const cols = ['#ff5d5d', '#ff9f43', '#ffd23f', '#3ccf7a', '#2ec4b6', '#4c8dff', '#9b6bff', '#ff77b7'];
+      B.probes = [];
+      for (let i = 0; i < N; i++) {
+        const pivot = base.clone().addScaledVector(h, i * gap + T / 2);
+        const body = new RotorBody({ pivot, axis: S, e1: h, boxes: [{ x: -T / 2, y: H / 2, z: 0, hu: T / 2, hv: H / 2, hw: W / 2 }], J: m * (H * H + T * T) / 3, mass: m, com: [-T / 2, H / 2], min: i === N - 1 ? -88 * DEG : hit, max: 0, bounce: 0.05, damping: 1e-7, surf: SURFACES.wood });
+        bodies.push(body);
+        B.colliders.push(body.collider); B.devices.push(body);
+        const holder = new THREE.Group();
+        holder.position.copy(pivot);
+        holder.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(h, UP, S));
+        const tilt = new THREE.Group(); holder.add(tilt);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(T, H, W), new THREE.MeshPhysicalMaterial({ map: TX.dominoTexture(cols[i % cols.length]), roughness: 0.35, clearcoat: 0.6 }));
+        mesh.position.set(-T / 2, H / 2, 0); tilt.add(mesh);
+        body.view = (th) => { tilt.rotation.z = th; };
+        B.meshes.push(holder);
+        B.probes.push(pivot.clone().add(V(0, H, 0)));
+      }
+      const row = new DominoRow(bodies);
+      B.devices.push(row);
+    },
+  },
+  bell: {
+    label: 'Bell', kind: 'place', defaults: { height: 0.15, size: 1 },
+    build(d, B) {
+      const base = V(d.port.x, d.port.y, d.port.z), sc = d.opts.size, Rb = 0.03 * sc;
+      const C = V(base.x, base.y + d.opts.height + 0.012, base.z);
+      const prof = [[Rb, 0], [Rb * 0.92, Rb * 0.25], [Rb * 0.72, Rb * 0.7], [Rb * 0.5, Rb], [Rb * 0.2, Rb * 1.15], [0.0005, Rb * 1.18]];
+      const dev = new BellDevice(sc);
+      const col = new RevolveCollider(C, UP, V(1, 0, 0), polyline(prof), SURFACES.bell, { device: dev });
+      B.colliders.push(col);
+      B.colliders.push(new CylinderCollider(base.x, base.z, base.y, C.y + Rb * 0.5, 0.004, SURFACES.wood));
+      B.devices.push(dev);
+      const holder = new THREE.Group(); holder.position.copy(C);
+      const inner = prof.map(([r, y]) => [Math.max(0.0005, r - 0.0025), y - 0.002]).reverse();
+      const bell = new THREE.Mesh(new THREE.LatheGeometry([...prof, ...inner].map(([r, y]) => new THREE.Vector2(r, y)), 40), MAT.gold);
+      bell.material.side = THREE.DoubleSide;
+      const clap = new THREE.Mesh(new THREE.SphereGeometry(Rb * 0.18, 12, 8), MAT.metal); clap.position.y = Rb * 0.25;
+      const knob = new THREE.Mesh(new THREE.SphereGeometry(Rb * 0.16, 12, 8), MAT.gold); knob.position.y = Rb * 1.2;
+      holder.add(bell, clap, knob);
+      dev.holder = holder;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, C.y - base.y, 10), null);
+      pole.position.set(base.x, (base.y + C.y) / 2, base.z); pole.userData.paint = 'solid';
+      const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.034, 0.008, 24), null);
+      foot.position.set(base.x, base.y + 0.004, base.z); foot.userData.paint = 'solid';
+      B.meshes.push(holder, pole, foot);
+      ringProbes(B, C, Rb, C.y + Rb * 0.5, 8);
+    },
+  },
+  bumper: {
+    label: 'Bumper', kind: 'place', defaults: {},
+    build(d, B) {
+      const base = V(d.port.x, d.port.y, d.port.z), R = 0.028, H = 0.03;
+      const dev = new BumperDevice();
+      const col = new CylinderCollider(base.x, base.z, base.y, base.y + H, R, SURFACES.bumper);
+      col.device = dev;
+      B.colliders.push(col); B.devices.push(dev);
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.9, R, H, 32), MAT.white);
+      body.position.set(base.x, base.y + H / 2, base.z);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(R, 0.005, 10, 36), MAT.red);
+      band.rotation.x = PI / 2; band.position.set(base.x, base.y + H * 0.45, base.z);
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.75, R * 0.85, 0.008, 32), new THREE.MeshStandardMaterial({ color: COLORS[d.color] || '#ffd23f', emissive: COLORS[d.color] || '#ffd23f', emissiveIntensity: 0.2, roughness: 0.3 }));
+      cap.position.set(base.x, base.y + H + 0.003, base.z);
+      dev.cap = cap;
+      B.meshes.push(body, band, cap);
+      ringProbes(B, base, R, base.y + H / 2, 8);
+    },
+  },
+  bridge: {
+    label: 'Connector', kind: 'connect', defaults: {},
+    build(d, B, P) {
+      const Q = portFromData(d.to);
+      const T0 = dirOf(P.psi, P.phi), T1 = dirOf(Q.psi, Q.phi);
+      const k = P.p.distanceTo(Q.p) * 1.1;
+      const fn = (t) => {
+        const t2 = t * t, t3 = t2 * t;
+        const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+        return P.p.clone().multiplyScalar(h00).addScaledVector(T0, h10 * k).addScaledVector(Q.p, h01).addScaledVector(T1, h11 * k);
+      };
+      const s = curveSamples(fn);
+      s[0].p.copy(P.p); last(s).p.copy(Q.p);
+      B.paths.push({ samples: s, profile: d.style });
+      B.outs.push({ p: Q.p.clone(), psi: Q.psi, phi: Q.phi });
+    },
+  },
+};
+
+// ---------------------------------------------------------------- building a piece instance
+export function buildPiece(d) {
+  const def = PIECES[d.type];
+  const B = { paths: [], outs: [], ins: [], colliders: [], devices: [], meshes: [], pillarPts: [], spawn: null, releaseBtn: null };
+  const P = d.port && def.kind !== 'place' ? portFromData(d.port) : null;
+  if (P) B.ins.push(P);
+  def.build(d, B, P);
+  // colliders + meshes for swept paths
+  const group = new THREE.Group();
+  group.userData.pieceId = d.id;
+  const color = d.color || 'wood';
+  for (const path of B.paths) {
+    const prof = PROFILES[path.profile] || PROFILES.channel;
+    const prims = path.cut ? cutPrims(prof.prims, path.cut.side, path.cut.s0) : prof.prims;
+    const pf = path.profile;
+    const surf = pf === 'tube' ? SURFACES.glass : pf === 'rails' ? SURFACES.metal : (color === 'wood' || pf === 'ply') ? SURFACES.wood : SURFACES.plastic;
+    const col = new SweepCollider(path.samples, prims, surf, { margin0: path.margin0, margin1: path.margin1, branchDev: path.branchDev, branchIdx: path.branchIdx, onRoll: path.onRoll });
+    if (path.branchDev) path.branchDev.branches[path.branchIdx] = col;
+    B.colliders.push(col);
+    const style = pf === 'tube' || pf === 'ply' || pf === 'rails' ? pf : 'solid';
+    const mesh = new THREE.Mesh(sweepGeometry(path.samples, prof, path.cut), trackMaterial(color, style));
+    mesh.castShadow = pf !== 'tube'; mesh.receiveShadow = true;
+    mesh.userData.pieceId = d.id;
+    group.add(mesh);
+    if (pf === 'rails') {
+      const tg = railTies(path.samples, prof);
+      if (tg) { const tm = new THREE.Mesh(tg, solidMat(color)); tm.castShadow = true; tm.userData.pieceId = d.id; group.add(tm); }
+    }
+    if (path.arch) {
+      // a tunnel arch over the track, with chunky portals at both ends
+      const am = new THREE.Mesh(sweepGeometry(path.samples, PROFILES.arch), trackMaterial(color, 'arch'));
+      am.castShadow = true; am.receiveShadow = true; am.userData.pieceId = d.id;
+      group.add(am);
+      for (const sm of [path.samples[0], last(path.samples)]) {
+        const portal = new THREE.Mesh(new THREE.TorusGeometry(0.039, 0.007, 8, 24, PI + 0.3), solidMat(color));
+        const R = V().crossVectors(sm.T, sm.U);
+        portal.matrixAutoUpdate = false;
+        portal.matrix.makeBasis(R, sm.U, sm.T).multiply(new THREE.Matrix4().makeRotationZ(-0.15)).setPosition(sm.p.clone().addScaledVector(sm.U, -0.014));
+        portal.userData.pieceId = d.id;
+        group.add(portal);
+      }
+    }
+    if (path.profile === 'tube') {
+      // colored collars at both ends of a tube
+      for (const sm of [path.samples[0], last(path.samples)]) {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(RC + TH, 0.0025, 8, 24), solidMat(color));
+        ring.position.copy(sm.p); ring.quaternion.setFromUnitVectors(V(0, 0, 1), sm.T);
+        group.add(ring);
+      }
+    }
+    if (!B.noPillars) {
+      // supports for the track itself; nearby duplicates are dropped later
+      B.autoPillars = B.autoPillars || new Set();
+      const len = last(path.samples).s;
+      const pts = [];
+      for (let sv = Math.min(0.17, len * 0.5); sv <= len - 0.08; sv += 0.36) pts.push(sv);
+      if (len > 0.15) pts.push(len - 0.03);
+      for (const sv of pts) {
+        const sm = path.samples.reduce((a, c) => Math.abs(c.s - sv) < Math.abs(a.s - sv) ? c : a);
+        if (sm.U.y > 0.85 && path.profile !== 'tube') {
+          const q = sm.p.clone().addScaledVector(sm.U, -(RC + TH));
+          B.pillarPts.push(q); B.autoPillars.add(q);
+        }
+      }
+    }
+  }
+  for (const m of B.meshes) {
+    m.traverse(o => {
+      if (!o.isMesh || o.material) return;
+      const paint = o.userData.paint;
+      if (paint === 'spiral') {
+        const key = 'spiral|' + color;
+        if (!matCache.has(key)) matCache.set(key, new THREE.MeshPhysicalMaterial({ map: TX.spiralTexture(COLORS[color] || COLORS.wood, '#ffffff'), roughness: 0.35, clearcoat: 0.6, side: THREE.DoubleSide }));
+        o.material = matCache.get(key);
+      }
+      else if (paint === 'wood') o.material = trackMaterial('wood', 'solid');
+      else o.material = solidMat(color);
+    });
+    m.traverse(o => { if (o.isMesh && !o.isInstancedMesh && !o.material.transparent) { o.castShadow = true; o.receiveShadow = true; } o.userData.pieceId = d.id; });
+    group.add(m);
+  }
+  return { d, group, B, colliders: B.colliders, devices: B.devices, outs: B.outs, ins: B.ins, paths: B.paths, spawn: B.spawn, releaseBtn: B.releaseBtn, pillars: null };
+}
+
+// sample points used for overlap tests
+export function pieceProbePoints(inst) {
+  const pts = [];
+  for (const path of inst.paths) for (let i = 0; i < path.samples.length; i += 2) pts.push(path.samples[i].p);
+  if (inst.B.probes) pts.push(...inst.B.probes);
+  return pts;
+}
+function ringProbes(B, c, R, y, n) {
+  B.probes = B.probes || [];
+  for (let i = 0; i < n; i++) { const a = i / n * TAU; B.probes.push(V(c.x + Math.cos(a) * R, y, c.z + Math.sin(a) * R)); }
+}
+
+// returns null when OK or a reason string
+export function validatePiece(inst, others, roomColliders) {
+  const pts = [];
+  for (const path of inst.paths) for (let i = 0; i < path.samples.length; i += 2) pts.push(path.samples[i].p);
+  const skip = [];
+  if (inst.d.port && PIECES[inst.d.type].kind !== 'place') skip.push(portFromData(inst.d.port).p);
+  if (inst.d.to) skip.push(portFromData(inst.d.to).p);
+  const near = (p, r) => skip.some(s => p.distanceTo(s) < r);
+  const clearR = RC + TH - 0.001;
+  for (const p of pts) {
+    if (p.y < RC + TH + 0.004) return 'Too low — it would go through the floor';
+    if (near(p, 0.05)) continue;
+    if (roomClearance(roomColliders, p.x, p.y, p.z) < clearR) return 'Bumps into furniture';
+  }
+  const own = new Set(inst.B.probes || []);
+  const all = pts.concat(inst.B.probes || []);
+  for (const o of others) {
+    const op = pieceProbePoints(o);
+    for (const p of all) {
+      if (near(p, own.has(p) ? 0.11 : 0.06)) continue;
+      for (const q of op) if (p.distanceToSquared(q) < 0.034 * 0.034) { validatePiece.hit = [o.d.id, p, q]; return 'Overlaps another track'; }
+    }
+  }
+  for (const path of inst.paths) for (const s of path.samples) if (s.p.y > 2.4) return 'Too high!';
+  return null;
+}
+
+// support pillars from points down to the first surface below
+export function buildPillars(inst, raycaster, targets, taken = []) {
+  const geos = [];
+  const down = V(0, -1, 0);
+  const S = V();
+  for (const p of inst.B.pillarPts) {
+    // a support already stands right here (e.g. where two pieces meet): skip this one
+    if (inst.B.autoPillars?.has(p) && taken.some(t => (t.x - p.x) ** 2 + (t.z - p.z) ** 2 < 0.1 * 0.1 && Math.abs(t.y - p.y) < 0.06)) continue;
+    taken.push(p);
+    let best = null;
+    const tries = [V(0, 0, 0)];
+    // try sideways offsets when the straight drop would land on another track
+    const path = inst.paths[0];
+    if (path) {
+      const sm = path.samples.reduce((a, c) => a.p.distanceToSquared(p) < c.p.distanceToSquared(p) ? a : c);
+      S.crossVectors(sm.T, sm.U).setY(0);
+      if (S.lengthSq() > 1e-6) { S.normalize(); tries.push(S.clone().multiplyScalar(0.03), S.clone().multiplyScalar(-0.03)); }
+    }
+    for (const off of tries) {
+      const o = p.clone().add(off).add(V(0, -0.004, 0));
+      raycaster.set(o, down); raycaster.far = 3;
+      const hit = raycaster.intersectObjects(targets, true).find(h => h.object.userData.pieceId !== inst.d.id);
+      if (!hit) continue;
+      const onTrack = hit.object.userData.pieceId !== undefined;
+      const cand = { off, top: o, y: hit.point.y, onTrack };
+      if (!best || (best.onTrack && !onTrack)) best = cand;
+      if (!onTrack) break;
+    }
+    if (!best) continue;
+    const len = best.top.y - best.y;
+    if (len < 0.006) continue;
+    const c = new THREE.CylinderGeometry(0.0042, 0.0042, len, 10);
+    c.translate(best.top.x, best.y + len / 2, best.top.z);
+    geos.push(c);
+    if (!best.onTrack) { const f = new THREE.CylinderGeometry(0.011, 0.013, 0.005, 16); f.translate(best.top.x, best.y + 0.0025, best.top.z); geos.push(f); }
+    if (best.off.lengthSq() > 0) {
+      const br = new THREE.BoxGeometry(0.008, 0.008, 0.008);
+      const mid = p.clone().addScaledVector(best.off, 0.5);
+      const bl = best.off.length();
+      const g2 = new THREE.BoxGeometry(bl + 0.006, 0.006, 0.006);
+      g2.rotateY(Math.atan2(-best.off.z, best.off.x));
+      g2.translate(mid.x, p.y - 0.004, mid.z);
+      geos.push(g2);
+      void br;
+    }
+  }
+  if (!geos.length) return null;
+  const m = new THREE.Mesh(mergeGeometries(geos), MAT.pillar);
+  m.castShadow = true; m.receiveShadow = true;
+  geos.forEach(g => g.dispose());
+  return m;
+}
+
+export function disposeGroup(g) {
+  g.traverse(o => { if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose(); });
+}

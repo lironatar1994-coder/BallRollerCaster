@@ -1,0 +1,10 @@
+{
+  "name": "ball-coaster",
+  "private": true,
+  "type": "module",
+  "description": "Build marble runs in a kid's room with real physics.",
+  "scripts": {
+    "start": "node serve.cjs",
+    "check": "node tools/check.mjs"
+  }
+}

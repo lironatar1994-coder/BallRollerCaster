@@ -1,0 +1,32 @@
+// Palette icons (inline SVG, 44x34)
+const s = (body) => `<svg viewBox="0 0 44 34" fill="none" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const T = '#e0a95f', B = '#4c8dff', R = '#ff5d5d', Y = '#ffc83d', G = '#3ccf7a', P = '#9b6bff', K = '#2b2d42';
+export const ICONS = {
+  select: s(`<path d="M15 5 L15 27 L20 22 L24 30 L28 28 L24 20 L31 20 Z" fill="#fff" stroke="${K}" stroke-width="2.4"/>`),
+  hand: s(`<circle cx="22" cy="9" r="6" fill="${B}"/><path d="M22 18 V29 M17 24 L22 29 L27 24" stroke="${K}" stroke-width="2.6"/>`),
+  bridge: s(`<circle cx="7" cy="25" r="4" fill="${Y}"/><circle cx="37" cy="10" r="4" fill="${B}"/><path d="M11 24 C 22 22, 22 12, 33 11" stroke="${K}" stroke-width="2.6" stroke-dasharray="3 4"/>`),
+  erase: s(`<path d="M10 22 L22 8 L34 18 L24 30 L14 30 Z" fill="#ffd0dc" stroke="${K}" stroke-width="2.2"/><path d="M16 16 L28 26" stroke="${K}" stroke-width="2.2"/>`),
+  start: s(`<circle cx="22" cy="9" r="7" fill="#e8f4ff" stroke="${B}" stroke-width="2"/><circle cx="20" cy="10" r="2.4" fill="${R}"/><circle cx="24.5" cy="8.5" r="2.4" fill="${Y}"/><path d="M22 16 V31 M15 31 H29" stroke="${T}" stroke-width="3.4"/><rect x="19" y="0.5" width="6" height="2.6" rx="1" fill="${R}"/>`),
+  straight: s(`<path d="M5 22 H39" stroke="${T}" stroke-width="7"/><path d="M5 22 H39" stroke="#fff6e6" stroke-width="2.4"/>`),
+  curveL: s(`<path d="M8 30 V22 A14 14 0 0 1 22 8 H36" stroke="${T}" stroke-width="7"/><path d="M8 30 V22 A14 14 0 0 1 22 8 H36" stroke="#fff6e6" stroke-width="2.4"/>`),
+  curveR: s(`<path d="M36 30 V22 A14 14 0 0 0 22 8 H8" stroke="${T}" stroke-width="7"/><path d="M36 30 V22 A14 14 0 0 0 22 8 H8" stroke="#fff6e6" stroke-width="2.4"/>`),
+  helixL: s(`<path d="M8 6 C 40 4, 40 14, 8 13 C 40 12, 40 22, 8 21 C 40 20, 40 30, 10 29" stroke="${G}" stroke-width="3.6"/>`),
+  helixR: s(`<path d="M36 6 C 4 4, 4 14, 36 13 C 4 12, 4 22, 36 21 C 4 20, 4 30, 34 29" stroke="${G}" stroke-width="3.6"/>`),
+  loop: s(`<path d="M3 30 H18 C 32 30, 32 6, 22 6 C 12 6, 12 30, 26 30 H41" stroke="${P}" stroke-width="4"/>`),
+  drop: s(`<path d="M5 6 H14 C 19 6, 20 8, 20 12 V22 C 20 27, 22 29, 27 29 H39" stroke="#9fd3ff" stroke-width="8"/><path d="M5 6 H14 C 19 6, 20 8, 20 12 V22 C 20 27, 22 29, 27 29 H39" stroke="#fff" stroke-width="3"/><circle cx="20" cy="17" r="3" fill="${B}"/>`),
+  jump: s(`<path d="M3 28 H18 C 25 28, 28 24, 30 18" stroke="${T}" stroke-width="6"/><circle cx="37" cy="8" r="3.5" fill="${B}"/><path d="M31 15 C 33 11, 34 10, 35 10" stroke="${B}" stroke-width="1.6" stroke-dasharray="2 2"/>`),
+  switch: s(`<path d="M4 17 H14 C 22 17, 24 7, 32 7 H40 M14 17 C 22 17, 24 27, 32 27 H40" stroke="${T}" stroke-width="5"/><path d="M15 17 L23 12" stroke="${R}" stroke-width="3"/>`),
+  xylo: s(`<rect x="4" y="9" width="5" height="18" rx="1.5" fill="#ff5d5d"/><rect x="10" y="10" width="5" height="16" rx="1.5" fill="#ff9f43"/><rect x="16" y="11" width="5" height="14" rx="1.5" fill="#ffd23f"/><rect x="22" y="12" width="5" height="12" rx="1.5" fill="#3ccf7a"/><rect x="28" y="13" width="5" height="10" rx="1.5" fill="#4c8dff"/><rect x="34" y="14" width="5" height="8" rx="1.5" fill="#9b6bff"/>`),
+  lift: s(`<rect x="15" y="3" width="14" height="28" rx="3" stroke="${K}" stroke-width="2"/><circle cx="22" cy="8" r="3.4" stroke="${T}" stroke-width="2.4"/><circle cx="22" cy="26" r="3.4" stroke="${T}" stroke-width="2.4"/><path d="M8 24 V10 M5 13 L8 9 L11 13" stroke="${G}" stroke-width="2.6"/><circle cx="35" cy="14" r="3" fill="${B}"/>`),
+  funnel: s(`<path d="M4 6 H40 L25 22 V30 H19 V22 Z" fill="#ffe6b8" stroke="${T}" stroke-width="2.4"/><path d="M9 9 C 20 15, 30 6, 35 9" stroke="#fff" stroke-width="2"/><circle cx="30" cy="11" r="2.4" fill="${B}"/>`),
+  cup: s(`<path d="M10 10 H34 L31 30 H13 Z" fill="${Y}" stroke="${K}" stroke-width="2"/><path d="M22 14 L23.5 18 L27.5 18 L24.3 20.6 L25.5 24.5 L22 22 L18.5 24.5 L19.7 20.6 L16.5 18 L20.5 18 Z" fill="#fff"/>`),
+  catcher: s(`<path d="M2 8 H42 L26 22 V30 H18 V22 Z" fill="#d7f5e3" stroke="${G}" stroke-width="2.4"/><circle cx="34" cy="3.5" r="3" fill="${B}"/>`),
+  basket: s(`<path d="M5 12 H39 L35 30 H9 Z" fill="#ffd8e6" stroke="${R}" stroke-width="2.2"/><path d="M8 18 H36 M10 24 H34 M15 12 L13 30 M22 12 V30 M29 12 L31 30" stroke="${R}" stroke-width="1.2"/>`),
+  tunnel: s(`<path d="M3 28 H41" stroke="${T}" stroke-width="5"/><path d="M9 28 V18 A13 13 0 0 1 35 18 V28" fill="#ffd8cc" stroke="${R}" stroke-width="3"/><path d="M15 28 V20 A7 7 0 0 1 29 20 V28" fill="#3a2f45"/>`),
+  wheel: s(`<circle cx="22" cy="17" r="13" stroke="${T}" stroke-width="3"/><path d="M22 4 V30 M9 17 H35 M13 8 L31 26 M31 8 L13 26" stroke="${T}" stroke-width="2"/><circle cx="22" cy="17" r="3" fill="${K}"/><circle cx="31" cy="9" r="3" fill="${B}"/>`),
+  seesaw: s(`<path d="M5 24 L39 10" stroke="${T}" stroke-width="5"/><path d="M22 18 L16 30 H28 Z" fill="${R}"/><circle cx="34" cy="7" r="3.5" fill="${B}"/>`),
+  dominoes: s(`<rect x="5" y="9" width="5" height="20" rx="1" fill="#ff5d5d"/><rect x="14" y="9" width="5" height="20" rx="1" fill="#ffd23f" transform="rotate(18 16 29)"/><rect x="24" y="12" width="5" height="20" rx="1" fill="#3ccf7a" transform="rotate(45 26 32)"/><rect x="31" y="22" width="11" height="5" rx="1" fill="#4c8dff"/>`),
+  bell: s(`<path d="M12 25 C12 12, 15 6, 22 6 C29 6, 32 12, 32 25 Z" fill="#f5c242" stroke="${K}" stroke-width="1.6"/><path d="M9 25 H35" stroke="${K}" stroke-width="2.4"/><circle cx="22" cy="28.5" r="2.6" fill="${K}"/><path d="M36 9 Q39 13 36 17 M39 7 Q43 13 39 19" stroke="${B}" stroke-width="1.6"/>`),
+  bumper: s(`<ellipse cx="22" cy="24" rx="13" ry="5" fill="#fff" stroke="${K}" stroke-width="1.6"/><rect x="9" y="12" width="26" height="12" fill="#fff"/><path d="M9 12 V24 M35 12 V24" stroke="${K}" stroke-width="1.6"/><path d="M9 18 H35" stroke="${R}" stroke-width="3.5"/><ellipse cx="22" cy="12" rx="13" ry="5" fill="#ffd23f" stroke="${K}" stroke-width="1.6"/>`),
+  tramp: s(`<ellipse cx="22" cy="17" rx="16" ry="5" fill="#30305a" stroke="${B}" stroke-width="2.6"/><path d="M9 20 L7 30 M35 20 L37 30 M16 22 L15 31 M28 22 L29 31" stroke="${K}" stroke-width="2"/><circle cx="22" cy="5" r="3.5" fill="${R}"/>`),
+};

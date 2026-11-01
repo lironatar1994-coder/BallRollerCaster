@@ -1,0 +1,3 @@
+* text=auto
+# runs on the Linux server: must stay LF
+*.sh text eol=lf

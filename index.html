@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ball Coaster</title>
+<meta name="description" content="Build marble runs in a kid's room with real physics: loops, spirals, lifts, water wheels and dominoes — then ride inside the ball.">
+<meta name="theme-color" content="#ff7a59">
+<link rel="canonical" href="https://lawebs.co.il/ball-coaster/">
+<meta property="og:title" content="Ball Coaster">
+<meta property="og:description" content="Build marble runs in a kid's room with real physics — then ride inside the ball.">
+<meta property="og:url" content="https://lawebs.co.il/ball-coaster/">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%A2%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/addons/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c" tabindex="0"></canvas>
+
+<!-- top: camera + play -->
+<header id="top">
+  <div class="logo"><span class="b1">Ball</span><span class="b2">Coaster</span></div>
+  <div class="grp seg" id="camModes">
+    <button data-cam="orbit" class="on" data-i18n-title="Build view · 1" title="Build view · 1"><i>🛠️</i><span data-i18n>Build</span></button>
+    <button data-cam="chase" data-i18n-title="Chase a ball · 2" title="Chase a ball · 2"><i>🎥</i><span data-i18n>Chase</span></button>
+    <button data-cam="pov" data-i18n-title="Ride inside a ball · 3" title="Ride inside a ball · 3"><i>🎢</i><span data-i18n>Ride</span></button>
+    <button data-cam="movie" data-i18n-title="Movie camera with automatic shots · 4" title="Movie camera with automatic shots · 4"><i>🎬</i><span data-i18n>Movie</span></button>
+  </div>
+  <div class="grp" id="playGrp">
+    <button id="btnRelease" class="go" data-i18n-title="Release a ball from every start · Space" title="Release a ball from every start · Space"><i>▶</i><span data-i18n>Release</span></button>
+    <div id="ballDots" class="balldots"></div>
+    <button id="btnAuto" data-i18n-title="Keep releasing balls" title="Keep releasing balls"><i>🔁</i><span data-i18n>Auto</span></button>
+    <button id="btnPause" data-i18n-title="Pause · P" title="Pause · P"><i>⏸</i></button>
+    <button id="btnSpeed" data-i18n-title="Time speed" title="Time speed"><i>⏱</i><span id="speedLabel">1×</span></button>
+    <button id="btnReplay" data-i18n-title="Instant replay of the last seconds · M" title="Instant replay of the last seconds · M"><i>⏪</i><span data-i18n>Replay</span></button>
+    <button id="btnClear" data-i18n-title="Remove all balls · C" title="Remove all balls · C"><i>✖</i><span data-i18n>Clear</span></button>
+  </div>
+  <div class="spacer"></div>
+  <div class="grp" id="rightGrp">
+    <button id="btnChallenges" class="trophy" data-i18n-title="Missions with stars" title="Missions with stars"><i>🏆</i><span data-i18n>Challenges</span></button>
+    <button id="btnPredict" class="on" data-i18n-title="Show where a ball will go" title="Show where a ball will go"><i>🔮</i><span data-i18n>Predict</span></button>
+    <button id="btnUndo" data-i18n-title="Undo · Ctrl+Z" title="Undo · Ctrl+Z"><i>↶</i></button>
+    <button id="btnRedo" data-i18n-title="Redo · Ctrl+Y" title="Redo · Ctrl+Y"><i>↷</i></button>
+    <button id="btnPhoto" data-i18n-title="Photo mode · K" title="Photo mode · K"><i>📷</i></button>
+    <button id="btnNight" data-i18n-title="Day / night · N" title="Day / night · N"><i>☀️</i></button>
+    <button id="btnMusic" data-i18n-title="Music" title="Music"><i>🎵</i></button>
+    <button id="btnSound" data-i18n-title="Sound on/off" title="Sound on/off"><i>🔊</i></button>
+    <button id="btnLang" data-i18n-title="Language" title="Language"><i>עב</i></button>
+    <button id="btnHelp" data-i18n-title="How to play · H" title="How to play · H"><i>?</i></button>
+    <button id="btnMenu" data-i18n-title="Menu" title="Menu"><i>☰</i></button>
+  </div>
+</header>
+<div id="speedMenu" class="menu hidden"></div>
+
+<!-- challenge mission card -->
+<div id="mission" class="hidden"></div>
+
+<!-- bottom: the build dock -->
+<div id="dock">
+  <div id="settings"></div>
+  <div id="dockMain">
+    <div id="dockTools"></div>
+    <div class="dockSep"></div>
+    <div id="dockRight">
+      <div id="dockTabs"></div>
+      <div id="dockPieces"></div>
+    </div>
+  </div>
+</div>
+<div id="dragGhost" class="hidden"></div>
+
+<!-- right: info cards -->
+<aside id="side">
+  <section class="card" data-card="pred">
+    <h3><span data-i18n>🔮 Prediction</span><i class="fold">▾</i></h3>
+    <div class="body small" id="predBody"></div>
+  </section>
+  <section class="card" data-card="phys">
+    <h3><span><span data-i18n>📊 Physics</span> <em id="hudBall"></em></span><i class="fold">▾</i></h3>
+    <div class="body">
+      <div id="hudBody" class="small muted"></div>
+      <canvas id="spark" width="520" height="110"></canvas>
+    </div>
+  </section>
+  <section class="card" data-card="lab">
+    <h3><span data-i18n>🧪 Physics lab</span><i class="fold">▾</i></h3>
+    <div class="body">
+      <div class="labrow"><label data-i18n>Gravity</label><div class="chips" id="gravChips"></div></div>
+      <div class="labrow"><label data-i18n>Air</label><div class="chips" id="airChips"></div></div>
+      <div class="labrow"><label class="chk" data-i18n-title="Gives slow balls a gentle push so they never get stuck" title="Gives slow balls a gentle push so they never get stuck"><input type="checkbox" id="chkKid"> <span data-i18n>🧸 Kid mode</span></label></div>
+      <div class="labrow"><label class="chk"><input type="checkbox" id="chkForces"> <span data-i18n>Force arrows</span></label><label class="chk"><input type="checkbox" id="chkTrail" checked> <span data-i18n>Trails</span></label></div>
+    </div>
+  </section>
+</aside>
+<button id="sideToggle" data-i18n-title="Show / hide the info panel · I" title="Show / hide the info panel · I">◀</button>
+
+<!-- floating editor for the selected piece -->
+<div id="selPop" class="hidden"></div>
+
+<!-- ride / chase / movie controls -->
+<div id="rideBar">
+  <button id="ridePrev" data-i18n-title="Previous ball" title="Previous ball">◀</button>
+  <span id="rideName">Ball</span>
+  <button id="rideNext" data-i18n-title="Next ball · Tab" title="Next ball · Tab">▶</button>
+  <button id="rideExit" class="exit" data-i18n>✕ Back to build</button>
+</div>
+
+<!-- replay controls -->
+<div id="replayBar">
+  <span class="ttl" data-i18n>🎬 Replay</span>
+  <button id="replayPlay">⏸</button>
+  <input type="range" id="replayPos" min="0" max="1000" value="0">
+  <button data-rs="1">1×</button><button data-rs="0.5">½×</button><button data-rs="0.25">¼×</button>
+  <button id="replayExit" class="exit" data-i18n>✕ Exit</button>
+</div>
+
+<!-- photo mode -->
+<div id="photoBar">
+  <span data-i18n>Photo mode — frame your shot with the mouse</span>
+  <button id="photoSnap" class="go" data-i18n>📸 Snap</button>
+  <button id="photoExit" data-i18n>✕ Done</button>
+</div>
+<div id="flash"></div>
+
+<div id="hint"></div>
+<div id="toast"></div>
+<div id="povHud"><div id="povSpeed">0.0</div><div class="u">m/s</div><div id="povG">1.0 g</div></div>
+
+<div id="menu" class="modal hidden">
+  <div class="card-modal">
+    <h2>Ball Coaster</h2>
+    <button data-act="demo" data-i18n>✨ Load the demo coaster</button>
+    <button data-act="challenges" data-i18n>🏆 Challenges</button>
+    <button data-act="new" data-i18n>🧸 Empty room (start fresh)</button>
+    <button data-act="export" data-i18n>💾 Save to file</button>
+    <button data-act="import" data-i18n>📂 Open a file</button>
+    <button data-act="close" class="ghost" data-i18n>Close</button>
+    <input type="file" id="fileIn" accept=".json" hidden>
+  </div>
+</div>
+
+<div id="chModal" class="modal hidden">
+  <div class="card-modal wide">
+    <h2><span data-i18n>🏆 Challenges</span> <small id="chTotal"></small></h2>
+    <p class="sub" data-i18n>Pick a mission and earn up to 3 stars!</p>
+    <div id="chList"></div>
+    <button data-act="close" class="ghost" data-i18n>Close</button>
+  </div>
+</div>
+
+<div id="winModal" class="modal hidden">
+  <div class="card-modal win">
+    <div id="winStars"></div>
+    <h2 id="winTitle"></h2>
+    <p id="winMsg" class="sub"></p>
+    <button id="winNext" class="primary" data-i18n>Next challenge ▶</button>
+    <button id="winStay" class="ghost" data-i18n>Keep improving</button>
+  </div>
+</div>
+
+<div id="help" class="modal hidden">
+  <div class="card-modal wide">
+    <h2 data-i18n>How to play</h2>
+    <div class="steps">
+      <div class="step"><div class="big">🏗️</div><h4 data-i18n>1 · Build</h4>
+        <p data-i18n-html>Pick <b>Start Tower</b> and click the floor, bed or desk. Then click or drag pieces from the dock. Each one snaps onto the glowing <b class="ring">ring</b>.</p></div>
+      <div class="step"><div class="big">▶️</div><h4 data-i18n>2 · Play</h4>
+        <p data-i18n-html>Press <b>Release</b> (or Space). The 🔮 line shows where a ball will go — a red ring marks where it would fall off.</p></div>
+      <div class="step"><div class="big">🎢</div><h4 data-i18n>3 · Watch</h4>
+        <p data-i18n-html>Click a ball, then <b>Ride</b> inside it, or watch the <b>Movie</b> camera and <b>Replay</b>. Then try the 🏆 challenges!</p></div>
+    </div>
+    <details>
+      <summary data-i18n>Controls &amp; shortcuts</summary>
+      <div class="keys">
+        <span><kbd>Left drag</kbd> <i data-i18n>orbit</i></span><span><kbd>Right drag</kbd> <i data-i18n>pan</i></span><span><kbd>Wheel</kbd> <i data-i18n>zoom</i></span><span><kbd>W A S D</kbd> <i data-i18n>move</i></span>
+        <span><kbd>↑ ← →</kbd> <i data-i18n>straight / curves</i></span><span><kbd>Enter</kbd> <i data-i18n>repeat last piece</i></span><span><kbd>Backspace</kbd> <i data-i18n>remove last</i></span><span><kbd>Del</kbd> <i data-i18n>remove selected</i></span>
+        <span><kbd>[ ]</kbd> <i data-i18n>slope</i></span><span><kbd>Q E</kbd> <i data-i18n>turn while placing</i></span><span><kbd>1 2 3 4</kbd> <i data-i18n>cameras</i></span><span><kbd>Tab</kbd> <i data-i18n>next ball</i></span>
+        <span><kbd>Space</kbd> <i data-i18n>release</i></span><span><kbd>P</kbd> <i data-i18n>pause</i></span><span><kbd>M</kbd> <i data-i18n>replay</i></span><span><kbd>K</kbd> <i data-i18n>photo</i></span>
+        <span><kbd>N</kbd> <i data-i18n>night</i></span><span><kbd>I</kbd> <i data-i18n>info panel</i></span><span><kbd>Esc</kbd> <i data-i18n>cancel</i></span>
+      </div>
+    </details>
+    <button data-act="close" class="primary" data-i18n>Let's build! 🚀</button>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
