@@ -646,6 +646,23 @@ body.sel-sheet #dockMain, body.sel-sheet #settings { display: none !important; }
 #selPop.aside { left: auto; right: 4px; top: calc(var(--topH, 50px) + 6px); bottom: calc(var(--dockH, 100px) + 8px); transform: none; width: 290px; min-width: 0; max-width: 46vw; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px; gap: 4px; }
 body.sel-aside #camPad, body.sel-aside #predPill { display: none; }
 #fpsMeter { position: fixed; left: 10px; top: calc(var(--topH, 60px) + 8px); z-index: 6; pointer-events: none; font: 600 11px/1 ui-monospace, Menlo, Consolas, monospace; background: rgba(43, 45, 66, 0.75); color: #fff; padding: 4px 8px; border-radius: 8px; }
+/* the remote: big round buttons, one per colour some piece listens to */
+#remote { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--dockH, 120px) + 16px); z-index: 6; display: flex; gap: 12px; padding: 8px 12px; background: var(--panel); backdrop-filter: blur(8px); border-radius: 999px; box-shadow: var(--shadow); }
+body.riding #remote, body.replaying #remote { bottom: 70px; }
+body.photo #remote { display: none !important; }
+#remote button { width: 54px; height: 54px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff8 0 18%, transparent 19%), var(--rc); box-shadow: 0 4px 0 color-mix(in srgb, var(--rc) 60%, #000), 0 6px 14px rgba(0, 0, 0, 0.2); transition: transform .06s, box-shadow .06s; touch-action: manipulation; }
+#remote button.down { transform: translateY(4px); box-shadow: 0 0 0 color-mix(in srgb, var(--rc) 60%, #000), 0 2px 6px rgba(0, 0, 0, 0.2); }
+body.phone #remote { left: auto; right: 6px; transform: none; flex-direction: column; bottom: calc(var(--dockH, 120px) + 100px); padding: 6px; gap: 8px; }
+body.phone #remote button { width: 46px; height: 46px; }
+/* the puzzle maker: a box of pieces with counters */
+.pz-box { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; margin: 10px 0; }
+.pz-item { display: flex; align-items: center; gap: 6px; background: #f7f5fc; border-radius: 12px; padding: 4px 8px; }
+.pz-ico svg { width: 30px; height: 23px; display: block; }
+.pz-name { flex: 1; font-size: 13px; }
+.pz-item button { width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); font-weight: 700; }
+.pz-item b { min-width: 14px; text-align: center; }
+#puzzleModal input { width: 100%; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 10px; font: inherit; }
+#puzzleModal .warn { color: #c0392b; font-weight: 600; }
 /* where the watched ball's energy is: moving, height, or lost to rubbing and bumps */
 #energyHud { position: fixed; right: 12px; bottom: 12px; z-index: 5; display: none; align-items: center; gap: 6px; flex-wrap: wrap; width: 200px; background: var(--panel); backdrop-filter: blur(8px); border-radius: 14px; padding: 6px 10px; box-shadow: var(--shadow); font-size: 11px; }
 #energyHud.on { display: flex; }

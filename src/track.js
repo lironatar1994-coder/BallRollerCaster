@@ -340,6 +340,8 @@ const MAT = {
   water: new THREE.MeshPhysicalMaterial({ color: '#59b8ff', transparent: true, opacity: 0.42, roughness: 0.04, clearcoat: 1, depthWrite: false }),
   lampGlow: new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#ffd27a', emissiveIntensity: 0.6 }),
 };
+// gates, flip-flops and turnstiles worked by a remote button wear its colour
+const REMOTE_MAT = { red: MAT.red, green: plainMat('#3ccf7a', { roughness: 0.4 }), blue: MAT.blue };
 export const SENSOR_COLORS = { confetti: '#ff77b7', lights: '#ffd23f', cheer: '#3ccf7a', music: '#9b6bff', gate: '#4c8dff' };
 const PENNANT = new THREE.BufferGeometry().setFromPoints([V(-0.013, 0, 0), V(0.013, 0, 0), V(0, -0.034, 0)]);
 PENNANT.computeVertexNormals(); PENNANT.userData.shared = true;
@@ -415,9 +417,9 @@ export class SwitchDevice {
       const lo = Math.min(...ds);
       if (Math.max(...ds) - lo < 0.004) {
         // a ball arriving at the entrance takes the flipper's side, then the flipper moves on
+        // (one steered by a remote button stays put until its button is pressed)
         a = { idx: st.next, t: world.time };
-        st.next = (st.next + 1) % this.n;
-        world.emit('switch', this, a.idx);
+        if (!this.remote) { st.next = (st.next + 1) % this.n; world.emit('switch', this, a.idx); }
       } else {
         // a ball coming back (or dropped in) belongs to the branch it is actually on
         a = { idx: ds.indexOf(lo), t: world.time };
@@ -681,7 +683,8 @@ export class GateDevice {
     let waiting = false;
     for (const b of world.balls) if (onCol(world, b, this.col, 0.01) && b.tkS > this.sHold - 0.05) { waiting = true; break; }
     if (!waiting) return;
-    const go = this.mode === 'sensor' ? st.trigger : now - st.last > this.interval;
+    // a button gate opens only if its button was pressed in the last 0.6 s
+    const go = this.remote ? now - (st.pressed ?? -9) < 0.6 : this.mode === 'sensor' ? st.trigger : now - st.last > this.interval;
     if (!go) return;
     st.trigger = false; st.open = true; st.tOpen = now; st.last = now;
     world.emit('gate', this);
@@ -1015,13 +1018,14 @@ export const PIECES = {
     build(d, B, P) {
       const L = 0.18, A = 0.4, ph1 = Math.max(d.slope, 0.04);
       const dev = new SwitchDevice(P.p.clone());
+      dev.remote = d.opts.remote || null;
       for (const side of [1, -1]) {
         const s = turtle(P.p, L, x => ({ psi: P.psi + side * A * Math.sin(PI * x / L), phi: lerpE(P.phi, ph1, x / L) }));
         B.paths.push({ samples: s, profile: 'channel', cut: { side: side > 0 ? 1 : -1, s0: L * 0.55 }, branchDev: dev, branchIdx: side > 0 ? 0 : 1 });
         B.outs.push(endPort(s, P.psi, ph1));
       }
       const fl = new THREE.Group();
-      const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.004), MAT.red);
+      const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.004), dev.remote ? REMOTE_MAT[dev.remote] : MAT.red);
       paddle.position.set(0.03, 0, 0); fl.add(paddle);
       const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.03, 12), MAT.metal);
       fl.add(pin);
@@ -1038,13 +1042,14 @@ export const PIECES = {
       // three ways out: each ball takes the next one round (exits 9 cm apart, room to build on each)
       const L = 0.24, A = 0.62, ph1 = Math.max(d.slope, 0.04);
       const dev = new SwitchDevice(P.p.clone(), 3);
+      dev.remote = d.opts.remote || null;
       for (const [side, cut, idx] of [[1, 1, 0], [0, 2, 1], [-1, -1, 2]]) {
         const s = turtle(P.p, L, x => ({ psi: P.psi + side * A * Math.sin(PI * x / L), phi: lerpE(P.phi, ph1, x / L) }));
         B.paths.push({ samples: s, profile: 'channel', cut: { side: cut, s0: L * 0.5 }, branchDev: dev, branchIdx: idx });
         B.outs.push(endPort(s, P.psi, ph1));
       }
       const fl = new THREE.Group();
-      const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.004), MAT.blue);
+      const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.004), dev.remote ? REMOTE_MAT[dev.remote] : MAT.blue);
       paddle.position.set(0.03, 0, 0); fl.add(paddle);
       fl.add(new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.03, 12), MAT.metal));
       const holder = new THREE.Group();
@@ -1563,7 +1568,8 @@ export const PIECES = {
     build(d, B, P) {
       const L = 0.14, ph1 = d.slope, sHold = 0.085;
       const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
-      const dev = new GateDevice({ mode: d.opts.mode, interval: d.opts.interval, sHold });
+      const remote = ['red', 'green', 'blue'].includes(d.opts.mode) ? d.opts.mode : null;
+      const dev = new GateDevice({ mode: d.opts.mode, interval: d.opts.interval, sHold, remote });
       B.paths.push({ samples: s, profile: 'channel', bind: (col) => { dev.col = col; } });
       B.outs.push(endPort(s, P.psi, ph1));
       B.devices.push(dev);
@@ -1581,10 +1587,11 @@ export const PIECES = {
       const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, RC * 2 + TH * 2 + 0.018, 10), MAT.metal);
       bar.rotation.x = PI / 2; hinge.add(bar);
       const flapHolder = new THREE.Group(); hinge.add(flapHolder);
-      const flap = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.036, RC * 2 - 0.002), d.opts.mode === 'sensor' ? MAT.blue : MAT.yellow);
+      const gm = remote ? REMOTE_MAT[remote] : d.opts.mode === 'sensor' ? MAT.blue : MAT.yellow;
+      const flap = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.036, RC * 2 - 0.002), gm);
       flap.position.y = -0.019; flapHolder.add(flap);
       dev.flap = flapHolder;
-      const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.003, 20), d.opts.mode === 'sensor' ? MAT.blue : MAT.yellow);
+      const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.003, 20), gm);
       sign.rotation.x = PI / 2; sign.position.set(0, 0.012, 0); hinge.add(sign);
       B.meshes.push(hinge);
       B.probes = [hinge.position.clone()];

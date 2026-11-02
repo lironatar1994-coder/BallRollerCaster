@@ -14,6 +14,7 @@ import { finishIt, fixIt, simulate as simRun } from './autobuild.js';
 import { createVisitors } from './visitors.js';
 import { createBuildPad } from './buildpad.js';
 import { createFeel, reduceMotion } from './feel.js';
+import { createPlay } from './play.js';
 import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
 import { Sound, ROLL_FAMILY } from './audio.js';
 import { ICONS } from './icons.js';
@@ -165,7 +166,9 @@ const OPTIONS = {
   bell: [['size', 'Size', [[0.7, 'S'], [1, 'M'], [1.4, 'L']]], ['height', 'Height', [[0.05, cm], [0.15, cm], [0.3, cm]]]],
   brake: [['len', 'Length', [[0.1, cm], [0.15, cm], [0.25, cm]]], ['speed', 'Slow to', [[0.3, 'Crawl'], [0.6, 'Calm'], [1, 'Easy']]]],
   booster: [['power', 'Kick', [[1, 'Small'], [1.4, 'Medium'], [2, 'Big']]]],
-  gate: [['mode', 'Opens', [['timer', '⏱ Timer'], ['sensor', '📡 Sensor']]], ['interval', 'Every', [[1, '1 s'], [2, '2 s'], [4, '4 s']]]],
+  gate: [['mode', 'Opens', [['timer', '⏱ Timer'], ['sensor', '📡 Sensor'], ['red', '🔴 Button'], ['green', '🟢 Button'], ['blue', '🔵 Button']]], ['interval', 'Every', [[1, '1 s'], [2, '2 s'], [4, '4 s']]]],
+  switch: [['remote', 'Steer', [['', '🔁 By itself'], ['red', '🔴 Button'], ['green', '🟢 Button'], ['blue', '🔵 Button']]]],
+  turnstile: [['remote', 'Steer', [['', '🔁 By itself'], ['red', '🔴 Button'], ['green', '🟢 Button'], ['blue', '🔵 Button']]]],
   sensor: [['effect', 'Does', [['confetti', '🎉 Confetti'], ['lights', '💡 Lights'], ['music', '🎵 Music'], ['cheer', '📣 Cheer'], ['gate', '🚦 Open gates']]]],
   screw: [['height', 'Height', [[0.2, cm], [0.3, cm], [0.45, cm]]], ['exit', 'Exit', [['back', 'Back'], ['left', 'Left'], ['right', 'Right']]]],
   elevator: [['height', 'Height', [[0.2, cm], [0.3, cm], [0.45, cm], [0.6, cm]]], ['exit', 'Exit', [['back', 'Back'], ['left', 'Left'], ['right', 'Right']]]],
@@ -1644,12 +1647,13 @@ $('dailyCard').addEventListener('click', (e) => { if (e.target.closest('[data-da
 $('chList').addEventListener('click', (e) => { const b = e.target.closest('[data-ch]'); if (b && !b.disabled) { $('chModal').classList.add('hidden'); startChallenge(+b.dataset.ch); } });
 function resetChallengeState() { C.goals = []; C.dominoes = false; C.maxNotes = 0; C.maxLifts = 0; C.teddy = false; C.splash = false; C.splashes = []; C.maxPhotos = 0; C.best = null; C.maxGadgets = 0; C.race = null; C.lights = false; }
 resetChallengeState();
-function startChallenge(i) {
-  const def = i < 0 ? dailyChallenge() : CHALLENGES[i];
+function startChallenge(i, custom) {
+  // custom: a puzzle a friend sent (play.js)
+  const def = custom || (i < 0 ? dailyChallenge() : CHALLENGES[i]);
   const want = def.daily ? 'kids' : (def.room || 'kids');
   if (want !== room.kind) switchRoom(want, { keepChallenge: true });
   if (!S.challenge) S.sandbox = { pieces: JSON.parse(JSON.stringify(pieces.filter(p => !p.locked))), g: world.g };
-  S.challenge = { def, i, best: starStore()[def.id] || 0, shown: 0 };
+  S.challenge = { def, i, best: def.custom ? 0 : starStore()[def.id] || 0, shown: 0 };
   stopReplay(); setCam('orbit'); clearBalls(); resetChallengeState();
   S.selected = null; S.nextId = 1;
   world.g = def.gravity || 9.81; renderLab();
@@ -1689,7 +1693,7 @@ function renderMission() {
 $('mission').addEventListener('click', (e) => {
   const b = e.target.closest('[data-m]');
   if (!b) return;
-  if (b.dataset.m === 'restart') startChallenge(S.challenge.def.daily ? -1 : S.challenge.i);
+  if (b.dataset.m === 'restart') startChallenge(S.challenge.def.daily ? -1 : S.challenge.i, S.challenge.def.custom ? S.challenge.def : undefined);
   else exitChallenge();
 });
 let lastStars = -1;
@@ -1702,7 +1706,7 @@ function renderMissionProgress() {
   const el = $('missionProg'); if (el) el.textContent = pr + L('Pieces used: {0}', n);
   if (got !== lastStars) { lastStars = got; renderMission(); }
   if (got > ch.best) {
-    const stars = starStore(); stars[def.id] = got; store.set('bc.stars', stars);
+    if (!def.custom) { const stars = starStore(); stars[def.id] = got; store.set('bc.stars', stars); }
     if (def.daily) sticker('daily');
     const was = ch.best; ch.best = got;
     celebrate(got, was);
@@ -1715,7 +1719,8 @@ function celebrate(n, was) {
   [0, 1, 2].forEach(k => { if (k >= was && k < n) setTimeout(() => sound.star(k), 300 + k * 250); });
   $('winTitle').textContent = n === 3 ? L('Perfect! ⭐⭐⭐') : L('Challenge complete!');
   $('winMsg').textContent = n < 3 ? L('Can you get all 3 stars?') : '';
-  $('winNext').classList.toggle('hidden', S.challenge.def.daily || S.challenge.i >= CHALLENGES.length - 1);
+  $('winNext').classList.toggle('hidden', S.challenge.def.daily || S.challenge.def.custom || S.challenge.i >= CHALLENGES.length - 1);
+  $('winShare').classList.toggle('hidden', !S.challenge.def.custom);
   $('winModal').classList.remove('hidden');
 }
 $('winNext').onclick = () => {
@@ -1726,6 +1731,7 @@ $('winNext').onclick = () => {
   if (j < CHALLENGES.length) startChallenge(j); else openChallenges();
 };
 $('winStay').onclick = () => $('winModal').classList.add('hidden');
+$('winShare').onclick = () => play.shareSolution();
 
 // ================================================================ UI: dock, settings, top bar, side
 function chips(el, items, isOn, onPick, cls = 'chip', disabled = false) {
@@ -2267,7 +2273,7 @@ $('chkForces').onchange = (e) => { S.forces = e.target.checked; };
 $('chkTrail').onchange = (e) => { S.trails = e.target.checked; };
 $('chkKid').onchange = (e) => { S.kid = e.target.checked; world.assist = S.kid; store.set('bc.kid', S.kid); schedulePrediction(); toast(L(S.kid ? 'Kid mode on: slow balls get a gentle push' : 'Kid mode off: pure physics')); };
 function closeModals() { closeMenus(); for (const id of MODALS) $(id).classList.add('hidden'); }
-const MODALS = ['help', 'chModal', 'winModal', 'galleryModal', 'albumModal', 'roomsModal', 'sharedModal', 'settingsModal'];
+const MODALS = ['help', 'chModal', 'winModal', 'galleryModal', 'albumModal', 'roomsModal', 'sharedModal', 'settingsModal', 'puzzleModal'];
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', (e) => { if (e.target === m) closeModals(); }));
 document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
   const a = b.dataset.act;
@@ -2403,6 +2409,10 @@ const app = {
 };
 const insight = createInsight(app);
 const visitors = createVisitors(app);
+const play = createPlay({
+  S, $, world, sound, TOOLS, ICONS, esc, SAVE_V, buzz, schedulePrediction, closeMenus, closeModals, toast, shareLink, startChallenge,
+  get room() { return room; }, get pieces() { return pieces; },
+});
 
 // ---------------------------------------------------------------- coaster window (side panel tabs)
 S.win = 'run';
@@ -3331,17 +3341,29 @@ async function checkSharedLink() {
   window.history.replaceState(null, '', location.pathname + location.search);
   try {
     const data = await decodeCoaster(code);
-    $('sharedMsg').textContent = L('“{0}” — {1} pieces. Open it here? Your own coaster is kept in My coasters.', data.name || L('A coaster'), data.pieces.length);
+    const pz = data.puzzle;
+    // a puzzle to solve, a friend's solution to watch, or just a coaster
+    $('sharedMsg').textContent = pz && !pz.solved ? L('🧩 A puzzle from a friend: “{0}”. Finish the run with the pieces in the box!', data.name || L('A puzzle'))
+      : pz ? L('🧩 Your friend solved “{0}”! Open it to watch their solution?', data.name || L('your puzzle'))
+      : L('“{0}” — {1} pieces. Open it here? Your own coaster is kept in My coasters.', data.name || L('A coaster'), data.pieces.length);
     $('sharedModal').classList.remove('hidden');
-    $('sharedOpen').onclick = () => { closeModals(); openCoaster(data, true); };
+    $('sharedOpen').onclick = () => {
+      closeModals();
+      if (pz && !pz.solved) { saveMine(); play.startPuzzle(data); return; }
+      openCoaster(data, true);
+      if (pz) setTimeout(() => releaseAll(), 1600);
+    };
   } catch (e) { toast(L("That share link didn't work"), true); }
+}
+// before something else takes over the room, the player's own coaster goes into My coasters
+function saveMine() {
+  if (S.challenge || !pieces.some(p => !p.locked)) return;
+  renderFrame();
+  gallery.save({ id: 'g' + Date.now(), name: (S.name || L('My coaster')) + ' ⟲', room: room.kind, pieces: pieces.filter(p => !p.locked), thumb: thumbnail(renderer.domElement), t: Date.now() });
 }
 function openCoaster(data, keepMine) {
   if (S.challenge) exitChallenge();
-  if (keepMine && pieces.some(p => !p.locked)) {
-    renderFrame();
-    gallery.save({ id: 'g' + Date.now(), name: (S.name || L('My coaster')) + ' ⟲', room: room.kind, pieces: pieces.filter(p => !p.locked), thumb: thumbnail(renderer.domElement), t: Date.now() });
-  }
+  if (keepMine) saveMine();
   switchRoom(roomKindOk(data.room || 'kids'));
   clearBalls(); S.selected = null;
   sync(migratePieces(data.pieces, data.v ?? SAVE_V));
@@ -3535,6 +3557,7 @@ $('btnGallery').onclick = () => openGallery();
 $('btnAlbum').onclick = openAlbum;
 $('btnShare').onclick = copyShareLink;
 $('btnVisit').onclick = () => { closeModals(); visitors.callNow(); };
+$('btnPuzzle').onclick = () => play.openMaker();
 $('btnSettings').onclick = () => { closeMenus(); syncOptions(); $('settingsModal').classList.remove('hidden'); };
 $('btnTour').onclick = () => { closeMenus(); startTour(); };
 
@@ -3623,6 +3646,7 @@ function afterSync() {
   refreshHeights();
   refreshSigns();
   if (S.multi.size) renderMulti();
+  play.refreshRemote();
   if (S.heat !== 'off' && !pred.running) insight.heat('off');
   if (S.win === 'coaster' && document.body.classList.contains('side-open')) renderCoasterTab();
 }
