@@ -12,7 +12,9 @@ import { createInsight, starText } from './insight.js';
 import { shareLink, linkCode, decodeCoaster, gallery, thumbnail, VideoRecorder } from './share.js';
 import { finishIt, fixIt, simulate as simRun } from './autobuild.js';
 import { createVisitors } from './visitors.js';
-import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, GoalDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
+import { createBuildPad } from './buildpad.js';
+import { createFeel, reduceMotion } from './feel.js';
+import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
 import { Sound, ROLL_FAMILY } from './audio.js';
 import { ICONS } from './icons.js';
 import * as TX from './textures.js';
@@ -510,18 +512,12 @@ function commit(d, msg) {
   if (msg) toast(msg);
   afterBuild();
 }
-// pieces placed one after another climb a little scale (and buzz a phone); a pause starts it again
-const placeRun = { n: 0, t: 0 };
-function placeSound() {
-  const now = performance.now();
-  placeRun.n = now - placeRun.t < 2500 ? placeRun.n + 1 : 0; placeRun.t = now;
-  sound.place(placeRun.n); buzz(12);
-}
-// a tiny buzz on phones that allow it (Android; iPhones don't let a web page vibrate)
-S.haptics = store.get('bc.haptics', true);
-const buzz = (p) => { if (S.haptics && navigator.vibrate && touchScreen()) try { navigator.vibrate(p); } catch { /* not allowed yet */ } };
-// the device asks for less motion: no wobbles, no camera swoops, fewer confetti
-const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+// how the game feels (climbing notes, a buzz, the big finish, the energy bar, self-building) lives in feel.js
+const feel = createFeel({
+  S, $, sound, store, world, canvas, insts, popIn: (g) => popIn(g), touchScreen: () => touchScreen(), liveBalls: () => liveBalls(),
+  get room() { return room; }, get pieces() { return pieces; }, get hIdx() { return hIdx; },
+});
+const { buzz, placeSound, assembleIn } = feel;
 // the parts box of a challenge: how many of each piece may still be used
 const toolKeyOf = (d) => d.type === 'curve' ? (d.opts.dir > 0 ? 'curveL' : 'curveR') : d.type === 'helix' ? (d.opts.dir > 0 ? 'helixL' : 'helixR') : TYPE_TOOL[d.type];
 function partsLeft(key) {
@@ -1992,7 +1988,7 @@ function renderAll() {
   applyStatic();
   document.documentElement.lang = getLang();
   document.body.dir = getLang() === 'he' ? 'rtl' : 'ltr';
-  renderTop(); renderLab(); renderDock(); renderSettings(); renderSelPop(); renderMission(); renderPad();
+  renderTop(); renderLab(); renderDock(); renderSettings(); renderSelPop(); renderMission(); buildPad.render();
   predHTML = ''; renderPred();
 }
 
@@ -2693,7 +2689,7 @@ function positionBuildPad() {
   const show = S.arrows && padOpen() && I && S.cam === 'orbit' && !S.photo && !S.replay && !S.move && markerGroup.visible && TOOLS[S.tool].type !== 'place' && !S.multi.size && !hdrag && !S.selected;
   el.classList.toggle('hidden', !show);
   if (!show) return;
-  padCheckTick(); updatePad();
+  buildPad.tick();
   if (phone()) { el.style.left = el.style.top = el.style.visibility = ''; return; } // a phone keeps it just above the dock
   _v.copy(I.p).project(camera);
   const r = canvas.getBoundingClientRect();
@@ -2703,134 +2699,11 @@ function positionBuildPad() {
   el.style.top = THREE.MathUtils.clamp(r.top + (1 - _v.y) / 2 * r.height - h / 2, 70, window.innerHeight - h - 160) + 'px';
   el.style.visibility = _v.z > 1 ? 'hidden' : 'visible';
 }
-// Like a coaster park's construction window: one row for the turn, one for the slope, one for the
-// tilt of the next piece. Before you tap, every turn is tried with a silent ball, so each arrow
-// already shows what will happen: green gets through, yellow only just, red flies out or stops.
-const PAD_MOVES = [
-  ['Lt', 'curveL', { angle: 90, radius: 0.08 }, 'Sharp left'], ['Lm', 'curveL', { angle: 90, radius: 0.12 }, 'Left'], ['Lw', 'curveL', { angle: 90, radius: 0.2 }, 'Wide left'],
-  ['S', 'straight', null, 'Straight'],
-  ['Rw', 'curveR', { angle: 90, radius: 0.2 }, 'Wide right'], ['Rm', 'curveR', { angle: 90, radius: 0.12 }, 'Right'], ['Rt', 'curveR', { angle: 90, radius: 0.08 }, 'Sharp right'],
-];
-const padSvg = (inner) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
-function turnIcon(dir, r) {
-  if (!dir) return padSvg('<path d="M12 21V4M7.5 8.5L12 4l4.5 4.5"/>');
-  const x0 = 12 - dir * r / 2, ex = x0 + dir * r;
-  return padSvg(`<path d="M${x0} 21V${5 + r}A${r} ${r} 0 0 ${dir > 0 ? 1 : 0} ${ex} 5"/><path d="M${ex - dir * 4} 1.5L${ex} 5L${ex - dir * 4} 8.5"/>`);
-}
-// slopes drawn steeper than they are, so they read at a glance
-function slopeIcon(deg) {
-  const a = { '-6': -14, 0: 0, 3: 8, 7: 18, 14: 32, 30: 55 }[deg] * DEG, c = Math.cos(a) * 8, s = Math.sin(a) * 8;
-  return padSvg(`<path d="M${12 - c} ${14 - s}L${12 + c} ${14 + s}"/><circle cx="${12 - c * 0.6 + 3.3 * Math.sin(a)}" cy="${14 - s * 0.6 - 3.3 * Math.cos(a)}" r="2.6" fill="currentColor" stroke="none"/>`);
-}
-function bankIcon(v) {
-  const a = { 0: 0, 15: 18, 30: 34, auto: 24 }[v];
-  return padSvg(`<g transform="rotate(${-a} 12 13)"><path d="M6 6v6a6 6 0 0 0 12 0V6"/><circle cx="12" cy="15" r="2.4" fill="currentColor" stroke="none"/></g>${v === 'auto' ? '<text x="16" y="23.5" font-size="9" font-weight="800" fill="currentColor" stroke="none">A</text>' : ''}`);
-}
-function renderPad() {
-  const b = (attrs, title, html, cls = '') => `<button ${attrs} class="${cls}" title="${esc(title)}">${html}</button>`;
-  $('buildPad').innerHTML =
-    `<div class="padRow">${PAD_MOVES.map(([k, , o, t]) => b(`data-b="${k}"`, L(t), turnIcon(k === 'S' ? 0 : k[0] === 'L' ? -1 : 1, { t: 4, m: 7, w: 10 }[k[1]]))).join('')}</div>` +
-    `<div class="padRow">${SLOPES.map(([v, l]) => b(`data-slope="${v}"`, `${L('Slope')}: ${L(l)}`, slopeIcon(v))).join('')}${b('data-b="back"', L('Remove the last piece'), '⌫')}</div>` +
-    `<div class="padRow">${BANKS.map(([v, l]) => b(`data-bank="${v}"`, `${L('Bank the turns')}: ${L(l)}`, bankIcon(v))).join('')}${b('data-b="finish"', L('Finish it: build a way into a goal'), '✨', 'magic')}</div>`;
-  padShown = '';
-}
-let padShown = '';
-function updatePad() {
-  const st = `${S.slope}|${S.bank}|${padCheck.ver}|${getLang()}`;
-  if (st === padShown) return;
-  padShown = st;
-  const el = $('buildPad');
-  for (const x of el.querySelectorAll('[data-slope]')) x.classList.toggle('on', Math.abs(+x.dataset.slope * DEG - S.slope) < 1e-6);
-  for (const x of el.querySelectorAll('[data-bank]')) x.classList.toggle('on', String(S.bank) === x.dataset.bank);
-  for (const [k, , , t] of PAD_MOVES) {
-    const x = el.querySelector(`[data-b="${k}"]`), r = padCheck.res[k];
-    x.className = r ? r.cls : 'wait';
-    x.title = L(t) + (r && r.text ? ' — ' + r.text : '');
-  }
-}
-// ---------------------------------------------------------------- trying each move before you tap it
-const padCheck = { key: '', queue: [], res: {}, ver: 0 };
-function padData(k, ap) {
-  const [, tool, o] = PAD_MOVES.find(m => m[0] === k);
-  return makeData(tool, { port: portToData(ap.port) }, o);
-}
-function padCheckTick() {
-  const ap = activePort();
-  if (!ap) return;
-  const v = predSpeedAt(ap.port.p), q = ap.port.p;
-  const key = [ap.key, q.x.toFixed(4), q.y.toFixed(4), q.z.toFixed(4), S.slope.toFixed(4), S.bank, hIdx, pieces.length, S.ballType, world.g, getLang(), v == null ? '-' : Math.round(v * 20)].join('|');
-  if (key !== padCheck.key) { padCheck.key = key; padCheck.queue = PAD_MOVES.map(m => m[0]); padCheck.res = {}; padCheck.ver++; }
-  const k = padCheck.queue.shift(); // one move per frame keeps the frame rate smooth
-  if (!k) return;
-  const d = padData(k, ap), inst = buildPiece(d);
-  const reason = validatePiece(inst, [...insts.values()], room.colliders);
-  padCheck.res[k] = reason ? { cls: 'bad', text: L(reason) } : v == null ? { cls: '', text: '' } : rollTest(inst, ap.port, v);
-  disposeGroup(inst.group);
-  padCheck.ver++;
-}
-// a silent ball enters the new piece at the predicted speed, already rolling
-function rollTest(inst, port, v) {
-  const w = new World({ silent: true });
-  w.g = world.g; w.rho = world.rho; w.assist = world.assist;
-  w.setColliders(world.colliders.concat(inst.colliders), world.devices.concat(inst.devices));
-  w.water = world.water.concat(inst.B.water || []);
-  const T = dirOf(port.psi, port.phi), U = V(Math.cos(port.psi) * Math.sin(port.phi), Math.cos(port.phi), -Math.sin(port.psi) * Math.sin(port.phi));
-  const b = w.addBall(new Ball(S.ballType, port.p.clone().addScaledVector(U, -(RC - BALL_TYPES[S.ballType].radius)), T.clone().multiplyScalar(Math.max(v, 0.02))));
-  b.w.crossVectors(U, b.vel).divideScalar(b.r);
-  const end = inst.outs[0] && inst.outs[0].p, start = b.pos.clone();
-  if (!end) return { cls: '', text: '' };
-  let still = 0;
-  for (let k = 0; k < 2500; k++) {
-    if ((k & 15) === 0) w.refreshCandidates(b, 0.02);
-    w.step(DT);
-    if (b.pos.distanceToSquared(end) < 0.025 * 0.025) {
-      const ve = b.vel.length();
-      return ve < 0.12 ? { cls: 'slow', text: L('the ball only just makes it ({0} m/s)', ve.toFixed(2)) } : { cls: 'ok', text: L('the ball gets through at {0} m/s', ve.toFixed(2)) };
-    }
-    if (b.dead || (k > 40 && w.time - b.lastTrackT > 0.15)) return { cls: 'off', text: L('too fast: the ball flies out. Bank the turn or take a wider one') };
-    still = b.vel.length() < 0.01 ? still + DT : 0;
-    if (still > 0.3 || b.pos.clone().sub(start).dot(T) < -0.015) return { cls: 'off', text: L('the ball stops here') };
-  }
-  return { cls: 'off', text: L('the ball stops here') };
-}
-$('buildPad').onclick = (e) => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  sound.ensure();
-  if (b.dataset.slope !== undefined) { S.slope = +b.dataset.slope * DEG; renderSettings(); sound.click(); return; }
-  if (b.dataset.bank !== undefined) { S.bank = b.dataset.bank === 'auto' ? 'auto' : +b.dataset.bank; store.set('bc.bank', S.bank); sound.click(); return; }
-  const k = b.dataset.b;
-  if (k === 'back') { const ap = activePort(), d = ap && pieces.find(p => p.id === ap.id); if (d && !d.locked) deletePiece(d.id); }
-  else if (k === 'finish') runFinishIt();
-  else padBuild(k);
-};
-function padBuild(k) {
-  const ap = activePort();
-  if (!ap) { toast(L('First place a 📍 Start Tower'), true); sound.error(); return; }
-  const [, tool] = PAD_MOVES.find(m => m[0] === k);
-  if (!canUse(tool)) { toast(L('None of those left in the parts box'), true); sound.error(); return; }
-  const d = padData(k, ap), inst = buildPiece(d);
-  const reason = validatePiece(inst, [...insts.values()], room.colliders);
-  disposeGroup(inst.group);
-  if (reason) { toast(L(reason), true); sound.error(); showBump(false); return; }
-  S.lastAppend = tool;
-  clearGhost();
-  commit(d);
-}
-// hovering an arrow shows the piece where it would go, and what the ball would do
-let padHov = null;
-$('buildPad').addEventListener('pointerover', (e) => {
-  if (e.pointerType === 'touch') return;
-  const b = e.target.closest('[data-b]'), k = b && PAD_MOVES.some(m => m[0] === b.dataset.b) ? b.dataset.b : null;
-  if (k === padHov) return;
-  padHov = k;
-  const ap = activePort();
-  if (!k || !ap) { clearGhost(); setHint(''); return; }
-  showGhost(padData(k, ap));
-  const r = padCheck.res[k], t = PAD_MOVES.find(m => m[0] === k)[3];
-  setHint(!S.ghostValid ? '⚠ ' + S.ghostReason : `${L(t)}${r && r.text ? ' — ' + r.text : ''}`);
+// the turn / slope / tilt rows and their test ball live in buildpad.js
+const buildPad = createBuildPad({
+  S, $, esc, SLOPES, BANKS, world, sound, store, insts, makeData, activePort, predSpeedAt, renderSettings, deletePiece, runFinishIt, canUse, toast, showBump, clearGhost, showGhost, commit, setHint,
+  get room() { return room; }, get pieces() { return pieces; }, get hIdx() { return hIdx; },
 });
-$('buildPad').addEventListener('pointerleave', () => { padHov = null; clearGhost(); setHint(''); });
 
 // ---------------------------------------------------------------- walking along the track
 function stepSelection(dir) {
@@ -3718,76 +3591,13 @@ function hoverPiece(id) {
 }
 canvas.addEventListener('pointerleave', () => hoverPiece(null));
 
-// ---------------------------------------------------------------- the big finish
-// The first ball down a new design slows right down as it drops into a goal, then a beat of
-// stillness as it lands. Only for a lone ball and once per design: with more it would just drag.
-const finale = { k: 1, on: false, ball: null, goal: null, t0: 0, hold: 0, done: '' };
-const designKey = () => room.kind + ':' + hIdx;
-const inGoal = (g, b, rk, up) => { const dx = b.pos.x - g.c.x, dz = b.pos.z - g.c.z; return dx * dx + dz * dz < (g.R * rk) ** 2 && b.pos.y < g.yTop + up && b.pos.y > g.yB - 0.01; };
-function finaleTick(now, dt) {
-  if (!finale.on) {
-    if (finale.done === designKey() || S.auto || S.race || S.replay || S.paused || S.photo) return;
-    const live = liveBalls();
-    if (live.length !== 1) return;
-    const b = live[0];
-    const g = world.devices.find(dv => dv instanceof GoalDevice && inGoal(dv, b, 2.4, 0.14) && (b.vel.y < -0.05 || (b.pos.x - dv.c.x) * b.vel.x + (b.pos.z - dv.c.z) * b.vel.z < 0));
-    if (g) Object.assign(finale, { on: true, ball: b, goal: g, t0: now, hold: 0 });
-    document.body.classList.toggle('finale', finale.on);
-    return;
-  }
-  const b = finale.ball;
-  if (b.collected || b.dead || !world.balls.includes(b) || now - finale.t0 > 2600) return endFinale();
-  if (!finale.hold && inGoal(finale.goal, b, 1, 0.004)) { finale.hold = now; buzz(40); }
-  const target = !finale.hold ? 0.3 : now - finale.hold < 90 ? 0 : 1;
-  finale.k += (target - finale.k) * Math.min(1, dt * (finale.hold ? 30 : 6));
-  if (finale.hold && now - finale.hold > 600) endFinale();
-}
-function endFinale() {
-  if (finale.on) finale.done = designKey();
-  Object.assign(finale, { on: false, k: 1, ball: null, goal: null });
-  document.body.classList.remove('finale');
-}
-canvas.addEventListener('pointerdown', () => { if (finale.on) endFinale(); }); // a tap skips it
-
-// ---------------------------------------------------------------- energy on screen while watching a ball
-// where the ball's energy is right now: moving, height, or already lost to rubbing and bumps
-let energyAt = 0;
-function energyTick() {
-  const el = $('energyHud'), b = S.follow;
-  const show = S.cam !== 'orbit' && b && world.balls.includes(b) && !b.captured && !S.replay && !S.photo;
-  el.classList.toggle('on', !!show);
-  if (!show || performance.now() - energyAt < 100) return;
-  energyAt = performance.now();
-  const E = b.energy(world.g), E0 = Math.max(b.stats.E0 || 0, E.total, 1e-9);
-  const mo = (E.kt + E.kr) / E0, h = Math.max(0, E.pe) / E0, lost = Math.max(0, 1 - mo - h);
-  const [m, hh, l] = el.querySelectorAll('.ebar i');
-  m.style.width = (mo * 100).toFixed(1) + '%'; hh.style.width = (h * 100).toFixed(1) + '%'; l.style.width = (lost * 100).toFixed(1) + '%';
-  el.querySelector('.elegend').innerHTML = `<span class="m">${L('motion')}</span><span class="h">${L('height')}</span><span class="l">${L('lost {0}%', (lost * 100).toFixed(0))}</span>`;
-}
-
-// ---------------------------------------------------------------- a coaster that opens builds itself
-// piece by piece along the track, with a few rising notes
-function assembleIn() {
-  if (reduceMotion()) return;
-  const list = pieces.filter(d => insts.has(d.id)), gap = Math.min(45, 1300 / Math.max(1, list.length));
-  list.forEach((d, i) => {
-    const g = insts.get(d.id).group;
-    g.visible = false;
-    setTimeout(() => {
-      if (!insts.has(d.id) || insts.get(d.id).group !== g) return;
-      g.visible = true; popIn(g);
-      if (i % 3 === 0) sound.place(Math.floor(i / 3) % 8);
-    }, 150 + i * gap);
-  });
-}
-
 // ---------------------------------------------------------------- every frame
 function everyFrame(dt, adv, now) {
   // a blocked piece pulses, so it reads as "no" without relying on red alone
   ghostMats.bad.opacity = reduceMotion() ? 0.3 : 0.28 + 0.16 * Math.sin(now * 0.012);
   frameStatTick(dt, now);
-  finaleTick(now, dt);
-  energyTick();
+  feel.finaleTick(now, dt);
+  feel.energyTick();
   for (let i = snaps.length - 1; i >= 0; i--) {
     const s = snaps[i]; s.t += dt;
     const k = s.t / 0.45;
@@ -3823,7 +3633,7 @@ const _qd = new THREE.Quaternion(), _ax = V();
 function loop(now) { requestAnimationFrame(loop); frame(now); }
 function frame(now) {
   const dt = Math.max(0, Math.min(0.05, (now - lastT) / 1000)); lastT = now;
-  const simDt = S.paused || S.replay ? 0 : dt * S.timeScale * finale.k;
+  const simDt = S.paused || S.replay ? 0 : dt * S.timeScale * feel.finale.k;
   autoTick(simDt);
   simAcc += simDt;
   let steps = Math.floor(simAcc / DT);
