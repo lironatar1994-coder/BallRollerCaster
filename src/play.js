@@ -97,5 +97,54 @@ export function createPlay(app) {
     catch (e) { window.prompt(L('Copy this link:'), url); }
   }
 
-  return { refreshRemote, press, openMaker, startPuzzle, shareSolution };
+  // ------------------------------------------------ notes in the room
+  // Pin a sticky note where you are building, signed with your name. Notes go along in share links,
+  // so a family can pass one coaster round, each adding a piece and a note.
+  let notes = [];
+  const noteKey = () => 'bc.notes.' + app.room.kind;
+  const layer = $('notes3d');
+  function roomChanged() { notes = app.store.get(noteKey(), []); drawNotes(); }
+  function setNotes(list) { notes = Array.isArray(list) ? list.slice(0, 30) : []; app.store.set(noteKey(), notes); drawNotes(); if (notes.length) app.toast('📝 ' + L('{0} notes in this room', notes.length)); }
+  function drawNotes() {
+    layer.innerHTML = notes.map((n, i) => `<div class="note3d" data-i="${i}"><b>📝 ${esc(n.by || '?')}</b><span>${esc(n.text)}</span><button data-del="${i}" title="${esc(L('Remove'))}">✕</button></div>`).join('');
+  }
+  layer.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-del]');
+    if (del) { notes.splice(+del.dataset.del, 1); app.store.set(noteKey(), notes); drawNotes(); sound.click(); return; }
+    const n = e.target.closest('.note3d');
+    if (n) { n.classList.toggle('open'); sound.click(); }
+  });
+  const _p = new (app.camera.position.constructor)();
+  function notesTick() {
+    layer.classList.toggle('hidden', S.cam !== 'orbit' || !!S.photo || !!S.replay);
+    if (layer.classList.contains('hidden')) return;
+    const r = app.canvas.getBoundingClientRect();
+    notes.forEach((n, i) => {
+      const el = layer.children[i];
+      if (!el) return;
+      _p.set(n.at[0], n.at[1], n.at[2]).project(app.camera);
+      el.style.display = _p.z > 1 ? 'none' : '';
+      el.style.left = (r.left + (_p.x + 1) / 2 * r.width) + 'px';
+      el.style.top = (r.top + (1 - _p.y) / 2 * r.height) + 'px';
+    });
+  }
+  function openNote() {
+    app.closeMenus();
+    $('noteBy').value = app.store.get('bc.author', '');
+    $('noteText').value = '';
+    $('noteModal').classList.remove('hidden');
+    setTimeout(() => $('noteText').focus(), 50);
+  }
+  $('notePin').onclick = () => {
+    const text = $('noteText').value.trim(), by = $('noteBy').value.trim();
+    if (!text) { app.toast(L('Write something first'), true); return; }
+    app.store.set('bc.author', by);
+    const p = (app.ringPoint() || app.controls.target).clone().add(new _p.constructor(0, 0.06, 0));
+    notes.push({ by, text: text.slice(0, 120), at: [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)], t: Date.now() });
+    app.store.set(noteKey(), notes); drawNotes();
+    app.closeModals(); app.sparkle(p, '#ffd23f', 8); sound.click();
+    app.toast(L('📝 Note pinned — share the link and pass the coaster on!'));
+  };
+
+  return { refreshRemote, press, openMaker, startPuzzle, shareSolution, notes: () => notes, setNotes, roomChanged, notesTick, openNote };
 }

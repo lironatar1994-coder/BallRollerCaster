@@ -340,9 +340,15 @@ const MAT = {
   water: new THREE.MeshPhysicalMaterial({ color: '#59b8ff', transparent: true, opacity: 0.42, roughness: 0.04, clearcoat: 1, depthWrite: false }),
   lampGlow: new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#ffd27a', emissiveIntensity: 0.6 }),
 };
+// a little gear beside a switch shows which others it is linked to
+function gearBadge(P, colour) {
+  const g = new THREE.Mesh(gearGeometry(0.014, 8, 0.004), REMOTE_MAT[colour] || MAT.metal);
+  g.rotation.x = PI / 2; g.position.copy(P.p).addScaledVector(heading(P.psi), 0.03).addScaledVector(leftOf(P.psi), RC + TH + 0.02).add(V(0, 0.012, 0));
+  return g;
+}
 // gates, flip-flops and turnstiles worked by a remote button wear its colour
 const REMOTE_MAT = { red: MAT.red, green: plainMat('#3ccf7a', { roughness: 0.4 }), blue: MAT.blue };
-export const SENSOR_COLORS = { confetti: '#ff77b7', lights: '#ffd23f', cheer: '#3ccf7a', music: '#9b6bff', gate: '#4c8dff' };
+export const SENSOR_COLORS = { confetti: '#ff77b7', lights: '#ffd23f', cheer: '#3ccf7a', music: '#9b6bff', gate: '#4c8dff', count: '#9b6bff' };
 const PENNANT = new THREE.BufferGeometry().setFromPoints([V(-0.013, 0, 0), V(0.013, 0, 0), V(0, -0.034, 0)]);
 PENNANT.computeVertexNormals(); PENNANT.userData.shared = true;
 const PINBLADE = new THREE.BufferGeometry().setFromPoints([V(0, 0, 0), V(0.032, 0.004, 0.006), V(0.01, 0.03, 0.002)]);
@@ -419,7 +425,11 @@ export class SwitchDevice {
         // a ball arriving at the entrance takes the flipper's side, then the flipper moves on
         // (one steered by a remote button stays put until its button is pressed)
         a = { idx: st.next, t: world.time };
-        if (!this.remote) { st.next = (st.next + 1) % this.n; world.emit('switch', this, a.idx); }
+        if (!this.remote) {
+          st.next = (st.next + 1) % this.n; world.emit('switch', this, a.idx);
+          // linked by gears: every switch with the same gear colour moves on with it
+          if (this.link) for (const d of world.devices) if (d !== this && d.link === this.link && d instanceof SwitchDevice) { const o = world.devState(d); o.next = (o.next + 1) % d.n; }
+        }
       } else {
         // a ball coming back (or dropped in) belongs to the branch it is actually on
         a = { idx: ds.indexOf(lo), t: world.time };
@@ -737,12 +747,15 @@ export class SensorDevice {
       if (prev === undefined || prev >= this.sMid || b.tkS < this.sMid) continue;
       st.last = world.time;
       if (this.effect === 'gate') for (const d of world.devices) if (d instanceof GateDevice && d.mode === 'sensor') world.devState(d).trigger = true;
+      if (this.effect === 'count') st.count = (st.count || 0) + 1;
       world.emit(this.kind, this, b);
     }
     if (st.seen.size > 200) st.seen.clear();
   }
   update(world) {
-    if (this.led) this.led.material.emissiveIntensity = 0.3 + 3 * Math.exp(-(world.time - world.devState(this).last) * 5);
+    const st = world.devState(this);
+    if (this.led) this.led.material.emissiveIntensity = 0.3 + 3 * Math.exp(-(world.time - st.last) * 5);
+    if (this.label && (st.count || 0) !== this.shown) { this.shown = st.count || 0; this.label.material.map = TX.badgeTexture(String(this.shown), '#9b6bff'); this.label.material.needsUpdate = true; }
   }
 }
 
@@ -1132,7 +1145,8 @@ export const PIECES = {
     build(d, B, P) {
       const L = 0.18, A = 0.4, ph1 = Math.max(d.slope, 0.04);
       const dev = new SwitchDevice(P.p.clone());
-      dev.remote = d.opts.remote || null;
+      dev.remote = d.opts.remote || null; dev.link = d.opts.link || null;
+      if (dev.link) B.meshes.push(gearBadge(P, dev.link));
       for (const side of [1, -1]) {
         const s = turtle(P.p, L, x => ({ psi: P.psi + side * A * Math.sin(PI * x / L), phi: lerpE(P.phi, ph1, x / L) }));
         B.paths.push({ samples: s, profile: 'channel', cut: { side: side > 0 ? 1 : -1, s0: L * 0.55 }, branchDev: dev, branchIdx: side > 0 ? 0 : 1 });
@@ -1156,7 +1170,8 @@ export const PIECES = {
       // three ways out: each ball takes the next one round (exits 9 cm apart, room to build on each)
       const L = 0.24, A = 0.62, ph1 = Math.max(d.slope, 0.04);
       const dev = new SwitchDevice(P.p.clone(), 3);
-      dev.remote = d.opts.remote || null;
+      dev.remote = d.opts.remote || null; dev.link = d.opts.link || null;
+      if (dev.link) B.meshes.push(gearBadge(P, dev.link));
       for (const [side, cut, idx] of [[1, 1, 0], [0, 2, 1], [-1, -1, 2]]) {
         const s = turtle(P.p, L, x => ({ psi: P.psi + side * A * Math.sin(PI * x / L), phi: lerpE(P.phi, ph1, x / L) }));
         B.paths.push({ samples: s, profile: 'channel', cut: { side: cut, s0: L * 0.5 }, branchDev: dev, branchIdx: idx });
@@ -1877,6 +1892,11 @@ export const PIECES = {
       led.position.copy(sm.p).addScaledVector(sm.U, RC + TH + 0.006);
       dev.led = led;
       B.meshes.push(hoop, led);
+      if (d.opts.effect === 'count') {
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: TX.badgeTexture('0', '#9b6bff'), transparent: true }));
+        label.scale.set(0.03, 0.03, 1); label.position.copy(led.position).add(V(0, 0.028, 0)); label.raycast = () => {}; label.renderOrder = 5;
+        dev.label = label; dev.shown = 0; B.meshes.push(label);
+      }
       B.probes = [led.position.clone()];
     },
   },

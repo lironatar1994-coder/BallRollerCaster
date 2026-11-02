@@ -71,6 +71,7 @@
   <button id="btnAlbum"><i>📸</i><span data-i18n>Photo album</span></button>
   <button id="btnShare"><i>🔗</i><span data-i18n>Copy share link</span></button>
   <button id="btnPuzzle"><i>🧩</i><span data-i18n>Make a puzzle for a friend</span></button>
+  <button id="btnNote"><i>📝</i><span data-i18n>Leave a note here</span></button>
   <button id="btnPhoto"><i>📷</i><span data-i18n>Photo mode</span><kbd>K</kbd></button>
   <button id="btnNight"><i>☀️</i><span data-i18n>Night light</span><b class="tick"></b><kbd>N</kbd></button>
   <button id="btnLang"><i>🌐</i><span id="langLabel">עברית</span></button>
@@ -195,6 +196,7 @@
 <div id="toast"></div>
 <div id="povHud"><div id="povSpeed">0.0</div><div class="u">m/s</div><div id="povG">1.0 g</div></div>
 <div id="fpsMeter" class="hidden"></div>
+<div id="notes3d"></div>
 <div id="remote" class="hidden"></div>
 <div id="energyHud"><b>⚡</b><div class="ebar"><i class="m"></i><i class="h"></i><i class="l"></i></div><div class="elegend"></div></div>
 
@@ -235,6 +237,16 @@
     <h2 data-i18n>📸 Photo album</h2>
     <p class="sub" data-i18n>Photo Booth pieces snap every ball that rolls past. Click a photo to save it.</p>
     <div id="albumList"></div>
+    <button data-act="close" class="ghost" data-i18n>Close</button>
+  </div>
+</div>
+<div id="noteModal" class="modal hidden">
+  <div class="card-modal">
+    <h2>📝 <span data-i18n>Leave a note here</span></h2>
+    <p class="sub" data-i18n>It is pinned where you are building. Share the link, and whoever builds next can add theirs.</p>
+    <input id="noteBy" maxlength="20" data-i18n-placeholder="Your name" placeholder="Your name">
+    <textarea id="noteText" maxlength="120" rows="3" data-i18n-placeholder="Your note (I added the loop! Your turn…)" placeholder="Your note (I added the loop! Your turn…)"></textarea>
+    <button id="notePin" class="primary" data-i18n>📌 Pin it</button>
     <button data-act="close" class="ghost" data-i18n>Close</button>
   </div>
 </div>
