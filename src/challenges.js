@@ -2,8 +2,8 @@
 // C (tracked by main.js): { goals: [{ ride, pieceId, loop, teddy, tramp, air }], dominoes, maxNotes, maxLifts, teddy }
 // n = number of pieces the player placed.
 const best = (arr, f) => arr.reduce((m, g) => Math.max(m, f(g)), 0);
-const lockedBasketOnBed = { id: 9001, type: 'basket', port: { x: 1.85, y: 0.485, z: -0.55, psi: Math.PI, phi: 0 }, slope: 0.05236, style: 'channel', color: 'pink', opts: { height: 0 }, locked: true };
-const lockedDominoes = { id: 9002, type: 'dominoes', port: { x: 0.9, y: 0, z: -1.25, psi: Math.PI, phi: 0 }, slope: 0.05236, style: 'channel', color: 'wood', opts: { count: 10 }, locked: true };
+const lockedBasketOnBed = { id: 9001, type: 'basket', port: { x: 1.295, y: 0.3395, z: -0.385, psi: Math.PI, phi: 0 }, slope: 0.05236, style: 'channel', color: 'pink', opts: { height: 0 }, locked: true };
+const lockedDominoes = { id: 9002, type: 'dominoes', port: { x: 0.63, y: 0, z: -0.875, psi: Math.PI, phi: 0 }, slope: 0.05236, style: 'channel', color: 'wood', opts: { count: 10 }, locked: true };
 
 export const CHALLENGES = [
   {

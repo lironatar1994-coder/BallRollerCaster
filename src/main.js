@@ -1,6 +1,7 @@
 // Ball Coaster — build marble runs in a kid's room, ride them, and watch real physics.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -33,12 +34,12 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 0.92;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#f3eee6');
 const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 30);
-camera.position.set(1.15, 1.0, 1.85);
+camera.position.set(0.9, 0.75, 1.3);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(-0.05, 0.3, 0.2);
 controls.enableDamping = true; controls.dampingFactor = 0.1;
@@ -54,6 +55,11 @@ const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.75, 0.55, 0.78)
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
+// soft studio reflections: glossy plastic, glass marbles and metal rails come alive
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.55;
+
 const room = buildRoom(scene);
 const trackGroup = new THREE.Group(); scene.add(trackGroup);
 const markerGroup = new THREE.Group(); scene.add(markerGroup);
@@ -65,6 +71,7 @@ const predGroup = new THREE.Group(); scene.add(predGroup);
 
 const sound = new Sound();
 const raycaster = new THREE.Raycaster();
+const probeRay = new THREE.Raycaster(); // for supports and plumb lines, so the mouse ray stays untouched
 raycaster.camera = camera;
 const movie = new MovieCam(camera, ROOM);
 const rec = new Recorder(15);
@@ -144,7 +151,7 @@ const pieceIcon = (d) => {
 
 // ================================================================ state
 const S = {
-  tool: 'select', hover: null, lastAppend: 'straight', tab: store.get('bc.tab', 'tracks'),
+  tool: 'select', hover: null, lastAppend: 'straight', insert: null, tab: store.get('bc.tab', 'tracks'),
   opts: {}, slope: 3 * DEG, color: 'rainbow', style: 'channel', rainbow: 0,
   ballType: 'glass',
   active: null, connectFrom: null, selected: null, selAnchor: V(),
@@ -192,6 +199,7 @@ function sync(list, opts = {}) {
   pieces = list;
   S.nextId = Math.max(S.nextId, ...list.map(d => d.id + 1), 1);
   rebuildPillars();
+  fitShadow();
   refreshWorld();
   refreshPorts(opts.activeFrom);
   if (S.selected && !insts.has(S.selected)) S.selected = null;
@@ -201,13 +209,30 @@ function sync(list, opts = {}) {
   save();
   renderMission();
 }
+// the coaster's bounds (without its supports)
+function coasterBox() {
+  const box = new THREE.Box3();
+  for (const inst of insts.values()) for (const ch of inst.group.children) if (ch !== inst.pillars && !ch.isSprite) box.expandByObject(ch);
+  return box;
+}
+// keep the sun's shadow map tight around the coaster: crisp contact shadows under every piece
+const sunDir = room.sun.position.clone().sub(room.sun.target.position).normalize();
+function fitShadow() {
+  const box = coasterBox(), sun = room.sun;
+  const c = box.isEmpty() ? V(0, 0, 0) : box.getCenter(V());
+  const r = box.isEmpty() ? 1.6 : Math.max(0.8, box.getSize(V()).length() / 2 + 0.35);
+  sun.target.position.copy(c); sun.target.updateMatrixWorld();
+  sun.position.copy(c).addScaledVector(sunDir, 3);
+  Object.assign(sun.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 0.2, far: 3 + r * 2 });
+  sun.shadow.camera.updateProjectionMatrix();
+}
 function rebuildPillars() {
-  for (const inst of insts.values()) if (inst.pillars) { inst.group.remove(inst.pillars); inst.pillars.geometry.dispose(); inst.pillars = null; }
+  for (const inst of insts.values()) if (inst.pillars) { inst.group.remove(inst.pillars); disposeGroup(inst.pillars); inst.pillars = null; }
   const targets = [...room.solids, ...[...insts.values()].map(i => i.group)];
   const taken = [];
   for (const inst of insts.values()) {
-    const m = buildPillars(inst, raycaster, targets, taken);
-    if (m) { m.userData.pieceId = inst.d.id; inst.group.add(m); inst.pillars = m; }
+    const m = buildPillars(inst, probeRay, targets, taken);
+    if (m) { m.traverse(o => { o.userData.pieceId = inst.d.id; }); inst.group.add(m); inst.pillars = m; }
   }
 }
 function refreshWorld() {
@@ -226,6 +251,7 @@ function refreshPorts(activeFrom) {
   }
   openOuts = outs.filter(o => !ins.some(n => n.id !== o.id && closePorts(o.port, n.port)));
   openIns = ins.filter(n => !outs.some(o => o.id !== n.id && closePorts(o.port, n.port)));
+  if (S.insert && !(chainLinks().kids.get(S.insert.parent) || []).some(c => c.out === S.insert.out)) S.insert = null;
   if (activeFrom !== undefined) {
     const o = openOuts.find(o => o.id === activeFrom);
     if (o) S.active = o.key;
@@ -257,9 +283,13 @@ const markerMats = {
   active: new THREE.MeshBasicMaterial({ color: '#ff7a00' }),
   in: new THREE.MeshBasicMaterial({ color: '#4c8dff' }),
   from: new THREE.MeshBasicMaterial({ color: '#2fbf71' }),
+  insert: new THREE.MeshBasicMaterial({ color: '#9b6bff' }),
   hit: new THREE.MeshBasicMaterial({ visible: false }),
 };
 const ringGeo = new THREE.TorusGeometry(0.026, 0.0045, 8, 32);
+const dropMat = new THREE.LineDashedMaterial({ color: '#ff7a00', dashSize: 0.012, gapSize: 0.008, transparent: true, opacity: 0.8 });
+const dropDotMat = new THREE.MeshBasicMaterial({ color: '#ff7a00', transparent: true, opacity: 0.45, depthWrite: false });
+const dotGeo = new THREE.RingGeometry(0.008, 0.016, 24);
 const coneGeo = new THREE.ConeGeometry(0.01, 0.024, 16);
 const hitGeo = new THREE.SphereGeometry(0.034, 12, 8);
 function drawMarkers() {
@@ -289,6 +319,32 @@ function drawMarkers() {
   };
   for (const o of openOuts) mk(o, 'out');
   if (S.tool === 'bridge') for (const n of openIns) mk(n, 'in');
+  const ap = activePort();
+  S.ringInfo = null;
+  if (ap) {
+    // a dashed plumb line from the ring down to whatever is below it: you can see how high you are
+    const p = ap.port.p;
+    probeRay.set(V(p.x, p.y - 0.02, p.z), V(0, -1, 0));
+    const hit = probeRay.intersectObjects(room.solids, false)[0];
+    const floorY = hit ? hit.point.y : 0;
+    if (p.y - floorY > 0.04) {
+      const g = new THREE.BufferGeometry().setFromPoints([V(p.x, p.y - 0.03, p.z), V(p.x, floorY + 0.002, p.z)]);
+      const ln = new THREE.Line(g, dropMat); ln.computeLineDistances(); ln.raycast = () => {};
+      const dot = new THREE.Mesh(dotGeo, dropDotMat); dot.rotation.x = -Math.PI / 2; dot.position.set(p.x, floorY + 0.002, p.z); dot.raycast = () => {};
+      markerGroup.add(ln, dot);
+    }
+    S.ringInfo = { p: p.clone(), h: p.y - floorY, at: 0, html: '' };
+  }
+  const ip = insertPort();
+  if (ip) {
+    const ring = new THREE.Mesh(ringGeo, markerMats.insert);
+    const dir = new THREE.Vector3(Math.cos(ip.psi) * Math.cos(ip.phi), -Math.sin(ip.phi), -Math.sin(ip.psi) * Math.cos(ip.phi));
+    ring.quaternion.setFromUnitVectors(V(0, 0, 1), dir);
+    ring.position.copy(ip.p);
+    ring.scale.setScalar(1.25);
+    ring.userData.active = true;
+    markerGroup.add(ring);
+  }
 }
 
 // ================================================================ ghost preview (while hovering/dragging a piece, placing or moving)
@@ -297,10 +353,11 @@ const ghostMats = {
   bad: new THREE.MeshBasicMaterial({ color: '#ff4d4d', transparent: true, opacity: 0.38, depthWrite: false }),
 };
 const fakeWorld = { time: 0, devState: (dv) => (dv.initState ? dv.initState() : { count: 0, next: 0 }) };
-let ghostInsts = [];
+let ghostInsts = [], ghostHidden = [];
 function clearGhost() {
   for (const gi of ghostInsts) { ghostGroup.remove(gi.group); disposeGroup(gi.group); }
-  ghostInsts = [];
+  for (const id of ghostHidden) if (insts.has(id)) insts.get(id).group.visible = true;
+  ghostInsts = []; ghostHidden = [];
   S.ghostData = null; S.ghostValid = false;
 }
 function ghostify(inst, bad) {
@@ -327,18 +384,42 @@ function showGhost(d) {
 function updateGhost() {
   if (S.move) return;
   const hv = S.hover && TOOLS[S.hover].type === 'append' ? S.hover : null;
+  if (hv && S.insert) {
+    clearGhost();
+    const plan = planInsert(hv);
+    if (!plan) { S.insert = null; drawMarkers(); return updateGhost(); }
+    const byId = new Map((plan.list || []).map(d => [d.id, d]));
+    for (const id of plan.order || [plan.d.id]) {
+      ghostify(buildPiece(byId.get(id) || plan.d), !!plan.reason);
+      // the pieces that move along are shown only where they would go
+      if (insts.has(id)) { insts.get(id).group.visible = false; ghostHidden.push(id); }
+    }
+    S.ghostData = plan.d; S.ghostValid = !plan.reason; S.ghostReason = plan.reason ? L(plan.reason) : '';
+    setHint(S.ghostValid ? `⤵ ${L(TOOLS[hv].label)} — ${L('the rest of the track moves along')}` : '⚠ ' + S.ghostReason);
+    renderSelPop();
+    return;
+  }
   if (hv) {
     const ap = activePort();
     if (!ap) { clearGhost(); setHint(L('First place a 📍 Start Tower, or click a yellow ring')); return; }
-    showGhost(makeData(hv, { port: portToData(ap.port) }));
-    setHint(S.ghostValid ? `${L(TOOLS[hv].label)} — ${L(TOOLS[hv].desc)}` : '⚠ ' + S.ghostReason);
+    const gd = makeData(hv, { port: portToData(ap.port) });
+    showGhost(gd);
+    let extra = '';
+    if (gd.type === 'loop' && S.ghostValid) {
+      // rolling ball, no losses: v² = g·R·(1 + 4/(1+k)) at the bottom to stay on at the top
+      const bt = BALL_TYPES[S.ballType], need = Math.sqrt(world.g * gd.opts.radius * (1 + 4 / (1 + bt.k)));
+      const v = predSpeedAt(ap.port.p);
+      extra = ` · ${L('needs ≥ {0} m/s', need.toFixed(2))}` + (v != null ? `, ${L('ball ≈ {0} m/s', v.toFixed(2))} ${v > need * 1.15 ? '✅' : '⚠️'}` : '');
+    }
+    setHint(S.ghostValid ? `${L(TOOLS[hv].label)} — ${L(TOOLS[hv].desc)}${extra}` : '⚠ ' + S.ghostReason);
     renderSelPop();
     return;
   }
   const t = TOOLS[S.tool];
   if (t.type === 'place') { setHint(L('Click a surface to place the {0} · wheel = height · Q / E = turn', L(t.label))); return; }
   clearGhost();
-  if (S.tool === 'bridge') setHint(L(S.connectFrom ? 'Now click a blue ring to connect to' : 'Click a yellow ring to start the connector'));
+  if (S.insert && t.type === 'tool') setHint(L('⤵ Insert mode: pick a piece in the dock to slip it in · Esc to stop'));
+  else if (S.tool === 'bridge') setHint(L(S.connectFrom ? 'Now click a blue ring to connect to' : 'Click a yellow ring to start the connector'));
   else if (S.tool === 'hand') setHint(L('Click anywhere to drop a ball'));
   else if (S.tool === 'erase') setHint(L('Click pieces to remove them · Esc when done'));
   else setHint('');
@@ -364,6 +445,7 @@ function commit(d, msg) {
   if (msg) toast(msg);
 }
 function tryAppend(toolKey) {
+  if (S.insert) return insertPiece(toolKey);
   const ap = activePort();
   if (!ap) { toast(L('First place a 📍 Start Tower'), true); sound.error(); return false; }
   const d = makeData(toolKey, { port: portToData(ap.port) });
@@ -375,45 +457,143 @@ function tryAppend(toolKey) {
   commit(d);
   return true;
 }
+function undo() { if (hIdx <= 0) { if (hIdx === 0) { hIdx = -1; sync(pieces.filter(p => p.locked)); } return; } hIdx--; sync(JSON.parse(history[hIdx])); sound.click(); }
+function redo() { if (hIdx >= history.length - 1) return; hIdx++; sync(JSON.parse(history[hIdx])); sound.click(); }
+
+// ---------------------------------------------------------------- the track as a chain
+// Every appended piece hangs off a ring of the piece before it. Editing, inserting or removing a
+// piece re-flows everything after it, so the rest of the track follows like a real chain.
+function chainLinks() {
+  const kids = new Map(), parentOf = new Map();
+  for (const d of pieces) {
+    if (!d.port || PIECES[d.type].kind === 'place') continue;
+    const P = V(d.port.x, d.port.y, d.port.z);
+    for (const inst of insts.values()) {
+      if (inst.d.id === d.id) continue;
+      const k = inst.outs.findIndex(o => o.p.distanceToSquared(P) < 9e-6);
+      if (k < 0) continue;
+      parentOf.set(d.id, { id: inst.d.id, out: k });
+      if (!kids.has(inst.d.id)) kids.set(inst.d.id, []);
+      kids.get(inst.d.id).push({ id: d.id, out: k });
+      break;
+    }
+  }
+  return { kids, parentOf };
+}
+// rebuild from `startId` down the chain: every child moves onto its parent's new ring
+function reflow(list, startId, kids) {
+  const byId = new Map(list.map(d => [d.id, d]));
+  const order = [], queue = [startId], seen = new Set();
+  while (queue.length) {
+    const id = queue.shift();
+    if (seen.has(id)) continue;
+    seen.add(id); order.push(id);
+    const inst = buildPiece(byId.get(id));
+    disposeGroup(inst.group);
+    for (const ch of kids.get(id) || []) {
+      const o = inst.outs[ch.out];
+      if (!o || byId.get(ch.id).locked) continue; // the new shape has fewer rings: that branch stays where it was
+      byId.set(ch.id, { ...byId.get(ch.id), port: portToData(o) });
+      queue.push(ch.id);
+    }
+  }
+  return { list: list.map(d => byId.get(d.id)), order };
+}
+// the re-flowed pieces must not run into the room or the rest of the track
+function chainProblem(list, order) {
+  const changed = new Set(order), alive = new Set(list.map(d => d.id)), byId = new Map(list.map(d => [d.id, d]));
+  const checked = [...insts.values()].filter(i => alive.has(i.d.id) && !changed.has(i.d.id));
+  const built = [];
+  let reason = null;
+  for (const id of order) {
+    const inst = buildPiece(byId.get(id));
+    built.push(inst);
+    reason = validatePiece(inst, checked, room.colliders);
+    if (reason) break;
+    checked.push(inst);
+  }
+  built.forEach(b => disposeGroup(b.group));
+  return reason;
+}
 function deletePiece(id) {
   const d = pieces.find(p => p.id === id);
   if (!d) return;
   if (d.locked) { toast(L('Locked in this challenge'), true); sound.error(); return; }
-  let parent;
-  if (d.port && PIECES[d.type].kind !== 'place') {
-    for (const inst of insts.values()) if (inst.d.id !== id && inst.outs.some(o => Math.abs(o.p.x - d.port.x) < 0.002 && Math.abs(o.p.y - d.port.y) < 0.002 && Math.abs(o.p.z - d.port.z) < 0.002)) parent = inst.d.id;
+  const { kids, parentOf } = chainLinks();
+  const par = parentOf.get(id), mine = kids.get(id) || [];
+  let list = pieces.filter(p => p.id !== id), healed = false;
+  // close the gap: the piece after it moves back onto the ring this one hung from
+  if (par && mine.length === 1) {
+    kids.delete(id);
+    const r = reflow(list.map(p => p.id === mine[0].id ? { ...p, port: d.port } : p), mine[0].id, kids);
+    if (!chainProblem(r.list, r.order)) { list = r.list; healed = true; }
   }
   if (S.selected === id) S.selected = null;
-  sync(pieces.filter(p => p.id !== id), { activeFrom: parent });
+  if (S.insert && (S.insert.parent === id)) S.insert = null;
+  sync(list, { activeFrom: healed ? undefined : par?.id });
   pushHistory();
   sound.remove();
-}
-function undo() { if (hIdx <= 0) { if (hIdx === 0) { hIdx = -1; sync(pieces.filter(p => p.locked)); } return; } hIdx--; sync(JSON.parse(history[hIdx])); sound.click(); }
-function redo() { if (hIdx >= history.length - 1) return; hIdx++; sync(JSON.parse(history[hIdx])); sound.click(); }
-
-// a piece's shape can only change while nothing is attached after it
-function isLocked(id) {
-  const inst = insts.get(id);
-  return !!inst && inst.outs.some(o => !openOuts.some(x => x.id === id && x.port === o));
+  if (mine.length && !healed) toast(L('Removed — the pieces after it stay where they are'));
 }
 function tweakSelected(change) {
   const id = S.selected;
   const d = pieces.find(p => p.id === id);
   if (!d) return;
   if (d.locked) { toast(L('Locked in this challenge'), true); return; }
-  if (change.geom && isLocked(id)) { toast(L('Something is attached after it — remove that first'), true); return; }
   const nd = JSON.parse(JSON.stringify(d));
   change.apply(nd);
   if (JSON.stringify(nd) === JSON.stringify(d)) return;
+  let list = pieces.map(p => p.id === id ? nd : p);
   if (change.geom) {
-    const ti = buildPiece(nd);
-    const reason = validatePiece(ti, [...insts.values()].filter(i => i.d.id !== id), room.colliders);
-    disposeGroup(ti.group);
+    const r = reflow(list, id, chainLinks().kids);
+    const reason = chainProblem(r.list, r.order);
     if (reason) { toast(L(reason), true); sound.error(); return; }
+    list = r.list;
   }
-  sync(pieces.map(p => p.id === id ? nd : p), { activeFrom: id });
+  sync(list, { activeFrom: id });
   pushHistory();
   sound.click();
+}
+// insert a piece in the middle of the track: it takes the ring, and the rest moves along
+function startInsert(id) {
+  const { kids } = chainLinks();
+  const k = (kids.get(id) || [])[0];
+  if (!k) return;
+  S.insert = { parent: id, out: k.out };
+  select(null); drawMarkers(); updateGhost();
+  sound.click();
+}
+const insertPort = () => { const I = S.insert, inst = I && insts.get(I.parent); return inst ? inst.outs[I.out] : null; };
+function planInsert(toolKey) {
+  const I = S.insert, at = insertPort();
+  if (!at) return null;
+  const d = makeData(toolKey, { port: portToData(at) });
+  const probe = buildPiece(d), hasOut = probe.outs.length > 0;
+  disposeGroup(probe.group);
+  if (!hasOut) return { d, reason: 'Only pieces with an exit can go in the middle' };
+  const { kids } = chainLinks();
+  const all = kids.get(I.parent) || [];
+  kids.set(I.parent, all.filter(c => c.out !== I.out));
+  kids.set(d.id, all.filter(c => c.out === I.out).map(c => ({ id: c.id, out: 0 })));
+  const r = reflow(pieces.concat([d]), d.id, kids);
+  return { d, ...r, reason: chainProblem(r.list, r.order) };
+}
+function insertPiece(toolKey) {
+  const plan = planInsert(toolKey);
+  if (!plan) { S.insert = null; drawMarkers(); return false; }
+  const { d, reason } = plan, r = plan;
+  if (reason) { toast(L(reason), true); sound.error(); return false; }
+  if (S.color === 'rainbow' && d.color === RAINBOW[S.rainbow % RAINBOW.length]) S.rainbow++;
+  S.nextId = d.id + 1;
+  S.insert = { parent: d.id, out: 0 }; // keep inserting after the new piece
+  sync(r.list);
+  pushHistory();
+  const inst = insts.get(d.id);
+  if (inst) popIn(inst.group);
+  S.lastAppend = toolKey;
+  sound.place();
+  drawMarkers(); updateGhost();
+  return true;
 }
 
 // ---------------------------------------------------------------- moving a whole coaster
@@ -536,7 +716,7 @@ function renderSelPop() {
   el.classList.remove('hidden');
   el.innerHTML = '';
   const place = PIECES[d.type].kind === 'place';
-  const locked = !!d.locked || isLocked(d.id);
+  const locked = !!d.locked;
   const hd = document.createElement('div'); hd.className = 'hd';
   hd.innerHTML = `${ICONS[pieceIcon(d)] || ''}<span>${pieceLabel(d)}</span>`;
   const x = document.createElement('button'); x.className = 'x'; x.textContent = '✕'; x.title = 'Esc';
@@ -558,7 +738,6 @@ function renderSelPop() {
   if (!d.locked) row('Color', c => chips(c, Object.keys(COLORS).map(k => [k, '', `background:${COLORS[k]}`]), v => v === d.color, v => tweakSelected({ geom: false, apply: nd => { nd.color = v; } }), 'swatch'));
   if (TRACK_TYPES.includes(d.type) && !d.locked) row('Style', c => chips(c, STYLE_ITEMS.map(([v, l]) => [v, L(l)]), v => v === d.style, v => tweakSelected({ geom: false, apply: nd => { nd.style = v; } })));
   if (d.locked) { const n = document.createElement('div'); n.className = 'note'; n.textContent = '🔒 ' + L('Locked in this challenge'); el.appendChild(n); }
-  else if (locked) { const n = document.createElement('div'); n.className = 'note'; n.textContent = L('🔒 Shape is locked because pieces are attached after it.'); el.appendChild(n); }
   const ft = document.createElement('div'); ft.className = 'ft';
   const btn = (label, cls, fn) => { const b = document.createElement('button'); b.textContent = L(label); if (cls) b.className = cls; b.onclick = fn; ft.appendChild(b); };
   if (place && !d.locked) {
@@ -568,9 +747,28 @@ function renderSelPop() {
   }
   if (d.type === 'dominoes') btn('↺ Stand up', '', () => { for (const dv of insts.get(d.id).devices) if (dv.reset) dv.reset(world); sound.click(); });
   const own = openOuts.find(o => o.id === d.id);
-  if (own && own.key !== S.active) btn('➕ Build from here', '', () => { S.active = own.key; select(null); drawMarkers(); renderDock(); sound.click(); });
+  if (own && own.key !== S.active) btn('➕ Build from here', '', () => { S.active = own.key; S.insert = null; select(null); drawMarkers(); renderDock(); sound.click(); });
+  if (chainLinks().kids.has(d.id)) btn('⤵ Insert after', '', () => startInsert(d.id));
   if (!d.locked) btn('🗑 Delete', 'del', () => deletePiece(d.id));
   el.appendChild(ft);
+}
+// the little tag under the active ring: how high it is and how fast the ball gets there
+function positionRingTag(now) {
+  const el = $('ringTag'), I = S.ringInfo;
+  const show = I && S.cam === 'orbit' && !S.photo && !S.replay && !S.move && markerGroup.visible;
+  el.classList.toggle('hidden', !show);
+  if (!show) return;
+  if (now - I.at > 250) {
+    I.at = now;
+    const v = S.predict ? predSpeedAt(I.p) : null;
+    const html = `<b>↧ ${(I.h * 100).toFixed(0)} ${L('cm')}</b>${v != null ? ` · ⚡ ${v.toFixed(2)} ${L('m/s')}` : ''}${S.insert ? ` · <span class="ins">⤵ ${L('inserting')}</span>` : ''}`;
+    if (html !== I.html) { el.innerHTML = html; I.html = html; }
+  }
+  _v.copy(I.p).project(camera);
+  const r = canvas.getBoundingClientRect();
+  el.style.left = (r.left + (_v.x + 1) / 2 * r.width) + 'px';
+  el.style.top = (r.top + (1 - _v.y) / 2 * r.height + 26) + 'px';
+  el.style.visibility = _v.z > 1 ? 'hidden' : 'visible';
 }
 const _v = V();
 function positionSelPop() {
@@ -789,7 +987,7 @@ function startPrediction() {
     const ticks = new THREE.Points(tg, new THREE.PointsMaterial({ color: '#ffffff', size: 4, sizeAttenuation: false }));
     ticks.frustumCulled = false;
     predGroup.add(line, ticks);
-    pred.runs.push({ w, b, line, ticks, n: 0, nt: 0, N, t0: w.time, done: false, outcome: '', maxV: 0, maxG: 0, still: 0, acc: 0, inst, liftT: 0, lastTrack: inst.spawn.clone() });
+    pred.runs.push({ w, b, line, ticks, v: new Float32Array(N), n: 0, nt: 0, N, t0: w.time, done: false, outcome: '', maxV: 0, maxG: 0, still: 0, acc: 0, inst, liftT: 0, lastTrack: inst.spawn.clone() });
   }
   pred.running = true;
 }
@@ -822,6 +1020,7 @@ function tickPrediction() {
           // drawn a little above the ball so it floats over the channel walls
           pos.setXYZ(R.n, b.pos.x, b.pos.y + 0.014, b.pos.z);
           speedColor(v, _c); col.setXYZ(R.n, _c.r, _c.g, _c.b);
+          R.v[R.n] = v;
           R.n++;
         }
         if (R.acc % 250 === 0 && R.nt < 400) R.ticks.geometry.attributes.position.setXYZ(R.nt++, b.pos.x, b.pos.y + 0.014, b.pos.z);
@@ -843,6 +1042,18 @@ function tickPrediction() {
   }
   if (!alive) pred.running = false;
   renderPred();
+}
+// predicted speed of the ball as it passes point p (null if no predicted ball goes near it)
+function predSpeedAt(p, near = 0.03) {
+  let best = near * near, v = null;
+  for (const R of pred.runs) {
+    const a = R.line.geometry.attributes.position.array;
+    for (let i = 0; i < R.n; i++) {
+      const dx = a[i * 3] - p.x, dy = a[i * 3 + 1] - 0.014 - p.y, dz = a[i * 3 + 2] - p.z, d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < best) { best = d2; v = R.v[i]; }
+    }
+  }
+  return v;
 }
 const OUTCOME = {
   goal: { icon: '🎯', badge: '✓', bg: '#2fbf71', title: (R) => L('Goal in {0} s', R.t.toFixed(1)) },
@@ -885,7 +1096,15 @@ function renderPred() {
     return `<div class="pred" data-i="${i}" title="${L('Click to look there')}"><div class="ico">${o ? o.icon : '⏳'}</div><div><div class="t">${pred.runs.length > 1 ? L('Start {0}: ', i + 1) : ''}${title}</div><div class="muted">${L('top {0} m/s · peak {1} g', R.maxV.toFixed(2), R.maxG.toFixed(1))} · ${L(BALL_TYPES[S.ballType].name)}</div>${tip}</div></div>`;
   }).join('');
   if (html !== predHTML) { el.innerHTML = html; predHTML = html; }
+  let pill = `📊 ${L('Info')}`;
+  if (S.predict && pred.runs.length) {
+    const R = pred.runs.find(r => r.done && r.outcome !== 'goal' && r.outcome !== 'loop') || pred.runs[0], o = R.done ? OUTCOME[R.outcome] : null;
+    pill = `${o ? o.icon : '⏳'} ${o ? o.title(R) : L('Simulating…')}`;
+    pill = `<span class="pdot" style="background:${o ? o.bg : '#9aa0b5'}"></span>${pill}`;
+  }
+  if (pill !== predPillHTML) { $('predPill').innerHTML = pill; predPillHTML = pill; }
 }
+let predPillHTML = '';
 $('predBody').addEventListener('click', (e) => {
   const row = e.target.closest('.pred');
   if (!row || S.cam !== 'orbit') return;
@@ -946,9 +1165,40 @@ function blocked(from, to) {
   occRay.set(from, d.divideScalar(len)); occRay.far = len - 0.035;
   return occRay.intersectObjects([trackGroup, ...room.solids], true).some(h => h.object.visible && !(h.object.material && h.object.material.transparent));
 }
+// smooth camera moves in the build view (frame the coaster, zoom buttons)
+const camFly = { t: 1, p0: V(), p1: V(), q0: V(), q1: V() };
+function flyTo(pos, target, instant) {
+  if (instant) { camera.position.copy(pos); controls.target.copy(target); camFly.t = 1; controls.update(); return; }
+  camFly.p0.copy(camera.position); camFly.q0.copy(controls.target); camFly.p1.copy(pos); camFly.q1.copy(target); camFly.t = 0;
+}
+// frame the whole coaster from the current direction (never from below or too flat)
+function fitView(instant) {
+  if (S.cam !== 'orbit') setCam('orbit');
+  const box = coasterBox();
+  const c = box.isEmpty() ? V(0.07, 0.12, 0.25) : box.getCenter(V());
+  const r = box.isEmpty() ? 0.55 : Math.max(0.25, box.getSize(V()).length() / 2);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  dir.y = THREE.MathUtils.clamp(dir.y, 0.4, 0.8); dir.normalize();
+  const dist = THREE.MathUtils.clamp(r / Math.sin(camera.fov * DEG / 2) * 0.9, 0.35, 4);
+  const pos = c.clone().addScaledVector(dir, dist);
+  pos.y = Math.min(pos.y, ROOM.h - 0.05);
+  flyTo(pos, c, instant);
+}
+function zoomBy(f) {
+  if (S.cam !== 'orbit') return;
+  const off = camera.position.clone().sub(controls.target).multiplyScalar(f);
+  if (off.length() < controls.minDistance || off.length() > controls.maxDistance) return;
+  flyTo(controls.target.clone().add(off), controls.target.clone());
+}
 function updateCamera(dt) {
   if (S.replay) { movie.update(dt, S.replay.focus, blocked); return; }
   if (S.cam === 'orbit') {
+    if (camFly.t < 1) {
+      camFly.t = Math.min(1, camFly.t + dt / 0.7);
+      const e = camFly.t * camFly.t * (3 - 2 * camFly.t);
+      camera.position.lerpVectors(camFly.p0, camFly.p1, e);
+      controls.target.lerpVectors(camFly.q0, camFly.q1, e);
+    }
     const mv = V();
     const f = camera.getWorldDirection(V()).setY(0).normalize(), r = V().crossVectors(f, UP);
     if (keys.has('w')) mv.add(f); if (keys.has('s')) mv.sub(f);
@@ -1007,7 +1257,7 @@ function startReplay() {
   const last = f[f.length - 1];
   const focusId = (S.follow && S.follow.id) || last.follow || (last.data.length ? last.data[0] : 0);
   camState.before = { pos: camera.position.clone(), target: controls.target.clone() };
-  S.replay = { t: f[0].t, t0: f[0].t, t1: last.t, speed: 0.5, playing: true, focusId, meshes: new Map(), focus: { pos: V(), vel: V(), r: 0.0095 } };
+  S.replay = { t: f[0].t, t0: f[0].t, t1: last.t, speed: 0.5, playing: true, focusId, meshes: new Map(), focus: { pos: V(), vel: V(), r: 0.0115 } };
   ballGroup.visible = false;
   document.body.classList.add('replaying');
   movie.reset();
@@ -1090,7 +1340,8 @@ function setNight(on) {
   S.night = on;
   room.setNight(on);
   for (const m of ballMats.values()) m.emissiveIntensity = on ? 0.55 : 0;
-  renderer.toneMappingExposure = on ? 1.15 : 1.05;
+  renderer.toneMappingExposure = on ? 1.1 : 0.92;
+  scene.environmentIntensity = on ? 0.12 : 0.55;
   $('btnNight').classList.toggle('on', on);
   $('btnNight').querySelector('i').textContent = on ? '🌙' : '☀️';
   sound.setNight(on);
@@ -1197,6 +1448,7 @@ function startChallenge(i) {
   S.tool = 'start'; S.tab = 'tracks'; renderDock(); renderSettings(); updateGhost();
   renderMission();
   toast(`${def.icon} ${L(def.title)}`);
+  fitView();
 }
 function exitChallenge() {
   if (!S.challenge) return;
@@ -1206,6 +1458,7 @@ function exitChallenge() {
   S.selected = null;
   sync(S.sandbox ? S.sandbox.pieces : []);
   history = []; hIdx = -1; pushHistory();
+  fitView();
   renderMission();
 }
 function renderMission() {
@@ -1321,6 +1574,7 @@ $('dockPieces').addEventListener('pointerdown', (e) => {
 });
 window.addEventListener('pointermove', (e) => {
   if (!drag) return;
+  S.freePlace = e.altKey;
   if (!drag.on) {
     if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
     drag.on = true;
@@ -1345,7 +1599,7 @@ window.addEventListener('pointermove', (e) => {
     }
     drag.ring = best;
     if (best) {
-      if (S.active !== best.key) { S.active = best.key; drawMarkers(); }
+      if (S.active !== best.key || S.insert) { S.active = best.key; S.insert = null; drawMarkers(); }
       showGhost(makeData(drag.k, { port: portToData(best.port) }));
       setHint(S.ghostValid ? L('Let go to add it here') : '⚠ ' + S.ghostReason);
     } else { clearGhost(); setHint(L('Drop it on a ring')); }
@@ -1388,30 +1642,65 @@ function renderSettings() {
   }
   add(`<span class="lbl">${L('Next slope')}</span>`);
   chips(box(), SLOPES.map(([v, l]) => [v, L(l)]), v => Math.abs(v * DEG - S.slope) < 1e-6, v => { S.slope = v * DEG; renderSettings(); updateGhost(); refreshPlaceGhost(); });
-  add(`<span class="sep"></span><span class="lbl">${L('Color')}</span>`);
-  const cb = box();
-  chips(cb, [['rainbow', '', ''], ...Object.keys(COLORS).map(k => [k, '', `background:${COLORS[k]}`])], v => v === S.color, v => { S.color = v; renderSettings(); updateGhost(); }, 'swatch');
-  cb.firstChild.classList.add('rainbow');
   add('<span class="sep"></span>');
-  chips(box(), STYLE_ITEMS.map(([v, l]) => [v, L(l)]), v => v === S.style, v => { S.style = v; renderSettings(); updateGhost(); });
+  const sw = document.createElement('button');
+  sw.className = 'swatch pick' + (S.color === 'rainbow' ? ' rainbow' : '');
+  if (S.color !== 'rainbow') sw.style.background = COLORS[S.color];
+  sw.dataset.menu = ''; sw.title = L('Color');
+  sw.onclick = () => openMenu($('popMenu'), sw, menu => {
+    menu.innerHTML = '';
+    const c = document.createElement('div'); c.className = 'chips pal';
+    chips(c, [['rainbow', '', ''], ...Object.keys(COLORS).map(k => [k, '', `background:${COLORS[k]}`])], v => v === S.color, v => { S.color = v; closeMenus(); renderSettings(); updateGhost(); }, 'swatch');
+    c.firstChild.classList.add('rainbow');
+    menu.appendChild(c);
+  }, true);
+  el.appendChild(sw);
+  const st = document.createElement('button');
+  st.className = 'chip pick'; st.dataset.menu = ''; st.title = L('Track style');
+  st.innerHTML = `${L(STYLE_ITEMS.find(s => s[0] === S.style)?.[1] || S.style)} <i class="caret">▾</i>`;
+  st.onclick = () => openMenu($('popMenu'), st, menu => {
+    menu.innerHTML = STYLE_ITEMS.map(([v, l]) => `<button data-style="${v}" class="${v === S.style ? 'on' : ''}">${L(l)}</button>`).join('');
+    menu.onclick = (e) => { const b = e.target.closest('[data-style]'); if (!b) return; S.style = b.dataset.style; closeMenus(); renderSettings(); updateGhost(); };
+  }, true);
+  el.appendChild(st);
 }
 function renderTop() {
-  const dots = $('ballDots');
-  dots.innerHTML = '';
-  for (const k of Object.keys(BALL_TYPES)) {
-    const d = BALL_TYPES[k];
-    const m = d.mass ?? d.density * 4 / 3 * Math.PI * d.radius ** 3;
-    const b = document.createElement('button');
-    b.className = 'balldot' + (k === S.ballType ? ' on' : '');
-    b.style.background = BALL_LOOK[k];
-    b.title = `${L(d.name)} — ${L(d.desc)}\n${(m * 1000).toFixed(1)} ${L('g')} · ${(d.radius * 200).toFixed(0)} mm · ${L('bounce')} ${d.restitution} · ${L('grip')} ${d.friction}${d.k > 0.5 ? ' · ' + L('hollow') : ''}`;
-    b.onclick = () => { S.ballType = k; sound.ensure(); sound.click(); renderTop(); schedulePrediction(); toast(`${L(d.name)}: ${L(d.desc)}`); };
-    dots.appendChild(b);
-  }
+  const cur = BALL_TYPES[S.ballType];
+  $('ballDot').style.background = BALL_LOOK[S.ballType];
+  $('ballName').textContent = L(cur.name);
   $('speedLabel').textContent = SPEEDS.find(s => s[0] === S.timeScale)[1];
   $('btnSpeed').classList.toggle('on', S.timeScale !== 1);
-  $('btnLang').querySelector('i').textContent = getLang() === 'he' ? 'EN' : 'עב';
+  $('langLabel').textContent = getLang() === 'he' ? 'English' : 'עברית';
 }
+function fillBallMenu(menu) {
+  menu.innerHTML = Object.keys(BALL_TYPES).map(k => {
+    const d = BALL_TYPES[k], m = d.mass ?? d.density * 4 / 3 * Math.PI * d.radius ** 3;
+    const facts = `${(m * 1000).toFixed(1)} ${L('g')} · ${(d.radius * 2000).toFixed(0)} mm · ${L('bounce')} ${d.restitution}${d.k > 0.5 ? ' · ' + L('hollow') : ''}`;
+    return `<button data-ball="${k}" class="${k === S.ballType ? 'on' : ''}"><span class="balldot" style="background:${BALL_LOOK[k]}"></span><span><b>${L(d.name)}</b><span class="sub">${L(d.desc)}<br>${facts}</span></span></button>`;
+  }).join('');
+}
+$('btnBall').onclick = () => openMenu($('ballMenu'), $('btnBall'), fillBallMenu);
+$('ballMenu').onclick = (e) => {
+  const b = e.target.closest('[data-ball]');
+  if (!b) return;
+  const d = BALL_TYPES[b.dataset.ball];
+  S.ballType = b.dataset.ball; sound.ensure(); sound.click(); closeMenus(); renderTop(); schedulePrediction(); toast(`${L(d.name)}: ${L(d.desc)}`);
+};
+// ---------------------------------------------------------------- small drop-down menus
+function openMenu(menu, anchor, fill, up) {
+  const wasOpen = !menu.classList.contains('hidden') && menu.anchor === anchor;
+  closeMenus();
+  if (wasOpen) return;
+  menu.anchor = anchor;
+  if (fill) fill(menu);
+  menu.classList.remove('hidden');
+  const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8) + 'px';
+  menu.style.top = (up ? r.top - h - 8 : r.bottom + 8) + 'px';
+}
+function closeMenus() { document.querySelectorAll('.menu').forEach(m => m.classList.add('hidden')); }
+document.addEventListener('click', (e) => { if (!e.target.closest('.menu, [data-menu]')) closeMenus(); });
+$('btnMore').onclick = () => openMenu($('moreMenu'), $('btnMore'));
 function renderLab() {
   chips($('gravChips'), GRAVITY.map(([v, l]) => [v, L(l)]), v => v === world.g, v => {
     if (S.challenge && S.challenge.def.gravity) { toast(L('Locked in this challenge'), true); return; }
@@ -1421,28 +1710,21 @@ function renderLab() {
   $('chkKid').checked = S.kid;
 }
 // speed menu
-$('btnSpeed').onclick = (e) => {
-  e.stopPropagation();
-  const m = $('speedMenu');
-  if (!m.classList.contains('hidden')) { m.classList.add('hidden'); return; }
+$('btnSpeed').onclick = () => openMenu($('speedMenu'), $('btnSpeed'), m => {
   m.innerHTML = SPEEDS.map(([v, l, d]) => `<button data-ts="${v}" class="${v === S.timeScale ? 'on' : ''}">${l} <span class="sub">${L(d)}</span></button>`).join('');
-  const r = $('btnSpeed').getBoundingClientRect();
-  m.style.left = r.left + 'px'; m.style.top = (r.bottom + 6) + 'px';
-  m.classList.remove('hidden');
-};
+});
 $('speedMenu').onclick = (e) => {
   const b = e.target.closest('[data-ts]');
   if (!b) return;
   S.timeScale = +b.dataset.ts; $('speedMenu').classList.add('hidden'); renderTop(); sound.click();
 };
-document.addEventListener('click', (e) => { if (!e.target.closest('#speedMenu')) $('speedMenu').classList.add('hidden'); });
 // side panel
 const folds = store.get('bc.folds', { lab: true });
 document.querySelectorAll('#side .card').forEach(c => {
   c.classList.toggle('folded', !!folds[c.dataset.card]);
   c.querySelector('h3').addEventListener('click', () => { c.classList.toggle('folded'); folds[c.dataset.card] = c.classList.contains('folded'); store.set('bc.folds', folds); });
 });
-function setSide(open) { document.body.classList.toggle('side-open', open); $('sideToggle').textContent = open ? '▶' : '◀'; store.set('bc.side', open); }
+function setSide(open) { document.body.classList.toggle('side-open', open); store.set('bc.side', open); }
 $('sideToggle').onclick = () => setSide(!document.body.classList.contains('side-open'));
 
 let hintT = 0;
@@ -1481,13 +1763,32 @@ function pickSurface() {
 }
 function pickAny() { return raycaster.intersectObjects([trackGroup, ...room.solids], true)[0] || null; }
 let lastSurf = null;
+const GRID = 0.025;
+const placeAid = new THREE.Group();
+{
+  const disc = new THREE.Mesh(new THREE.RingGeometry(0.03, 0.045, 40), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.75, depthWrite: false }));
+  disc.rotation.x = -Math.PI / 2;
+  const cross = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([V(-0.07, 0, 0), V(0.07, 0, 0), V(0, 0, -0.07), V(0, 0, 0.07)]), new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.6 }));
+  const post = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V(0, 0, 0), V(0, 1, 0)]), dropMat);
+  post.computeLineDistances();
+  post.name = 'post';
+  placeAid.add(disc, cross, post);
+  placeAid.traverse(o => { o.raycast = () => {}; o.renderOrder = 5; });
+  placeAid.visible = false;
+  fxGroup.add(placeAid);
+}
 function refreshPlaceGhost() {
   const t = TOOLS[S.tool];
   if (t.type !== 'place' || !lastSurf || S.hover) return;
-  const p = lastSurf.point;
+  const p = lastSurf.point.clone();
+  if (!S.freePlace) { p.x = Math.round(p.x / GRID) * GRID; p.z = Math.round(p.z / GRID) * GRID; }
   const d = makeData(S.tool, { port: { x: +p.x.toFixed(4), y: +p.y.toFixed(4), z: +p.z.toFixed(4), psi: S.placeYaw, phi: 0 } });
   showGhost(d);
-  setHint(S.ghostValid ? L('Click to place · height {0} cm (wheel) · Q / E turn', ((d.opts.height ?? 0) * 100).toFixed(0)) : '⚠ ' + S.ghostReason);
+  const h = d.opts.height ?? 0;
+  placeAid.position.set(p.x, p.y + 0.002, p.z);
+  const post = placeAid.getObjectByName('post');
+  post.visible = h > 0.02; post.scale.y = Math.max(0.001, h);
+  setHint(S.ghostValid ? L('Click to place · height {0} cm (wheel) · Q / E turn · Alt = off grid', (h * 100).toFixed(0)) : '⚠ ' + S.ghostReason);
 }
 canvas.addEventListener('pointerdown', (e) => {
   sound.ensure();
@@ -1495,6 +1796,7 @@ canvas.addEventListener('pointerdown', (e) => {
   canvas.focus();
 });
 canvas.addEventListener('pointermove', (e) => {
+  S.freePlace = e.altKey;
   if (drag) return;
   setMouse(e);
   if (down && S.cam !== 'orbit' && (e.buttons & 1)) {
@@ -1551,7 +1853,7 @@ function handleClick() {
     }
     return;
   }
-  if (marker && marker.kind === 'out') { S.active = marker.key; select(null); drawMarkers(); renderDock(); sound.click(); toast(L('Next piece goes here')); return; }
+  if (marker && marker.kind === 'out') { S.active = marker.key; S.insert = null; select(null); drawMarkers(); renderDock(); sound.click(); toast(L('Next piece goes here')); return; }
   if (t.type === 'place') {
     if (!S.ghostData) return;
     if (!S.ghostValid) { toast(S.ghostReason, true); sound.error(); return; }
@@ -1599,14 +1901,18 @@ window.addEventListener('keydown', (e) => {
     case '4': setCam('movie'); break;
     case 'Tab': e.preventDefault(); cycleBall(1); break;
     case 'Escape':
-      if (['help', 'menu', 'chModal', 'winModal'].some(id => !$(id).classList.contains('hidden'))) { closeModals(); break; }
+      if ([...document.querySelectorAll('.menu')].some(x => !x.classList.contains('hidden'))) { closeMenus(); break; }
+      if (['help', 'chModal', 'winModal'].some(id => !$(id).classList.contains('hidden'))) { closeModals(); break; }
       if (S.replay) { stopReplay(); break; }
       if (S.photo) { setPhoto(false); break; }
       if (S.move) { endMove(false); break; }
-      S.connectFrom = null; S.tool = 'select'; select(null); renderDock(); renderSettings(); drawMarkers(); updateGhost();
+      S.connectFrom = null; S.insert = null; S.tool = 'select'; select(null); renderDock(); renderSettings(); drawMarkers(); updateGhost();
       if (S.cam !== 'orbit') setCam('orbit');
       break;
     case 'Enter': tryAppend(S.lastAppend); break;
+    case 'z': case 'Z': case 'Home': if (S.cam === 'orbit') fitView(); break;
+    case '+': case '=': if (S.cam === 'orbit') zoomBy(0.8); break;
+    case '-': case '_': if (S.cam === 'orbit') zoomBy(1.25); break;
     case 'ArrowUp': e.preventDefault(); tryAppend('straight'); break;
     case 'ArrowLeft': e.preventDefault(); tryAppend('curveL'); break;
     case 'ArrowRight': e.preventDefault(); tryAppend('curveR'); break;
@@ -1653,15 +1959,18 @@ $('btnPause').onclick = togglePause;
 $('btnClear').onclick = clearBalls;
 $('btnReplay').onclick = startReplay;
 $('btnPredict').onclick = () => { S.predict = !S.predict; $('btnPredict').classList.toggle('on', S.predict); schedulePrediction(); };
+$('predPill').onclick = () => setSide(true);
+$('camFit').onclick = () => { fitView(); sound.click(); };
+$('camIn').onclick = () => zoomBy(0.8);
+$('camOut').onclick = () => zoomBy(1.25);
 $('btnUndo').onclick = undo; $('btnRedo').onclick = redo;
-$('btnSound').onclick = () => { sound.ensure(); sound.setOn(!sound.on); $('btnSound').innerHTML = sound.on ? '<i>🔊</i>' : '<i>🔇</i>'; };
+$('btnSound').onclick = () => { sound.ensure(); sound.setOn(!sound.on); $('btnSound').classList.toggle('on', sound.on); $('btnSound').querySelector('i').textContent = sound.on ? '🔊' : '🔇'; };
 $('btnMusic').onclick = () => { sound.ensure(); sound.setMusic(!sound.musicOn); $('btnMusic').classList.toggle('on', sound.musicOn); store.set('bc.music', sound.musicOn); };
 $('btnNight').onclick = () => setNight(!S.night);
-$('btnPhoto').onclick = () => setPhoto(true);
+$('btnPhoto').onclick = () => { closeMenus(); setPhoto(true); };
 $('btnLang').onclick = () => { setLang(getLang() === 'he' ? 'en' : 'he'); store.set('bc.lang', getLang()); renderAll(); };
 $('btnChallenges').onclick = openChallenges;
-$('btnHelp').onclick = () => $('help').classList.remove('hidden');
-$('btnMenu').onclick = () => $('menu').classList.remove('hidden');
+$('btnHelp').onclick = () => { closeMenus(); $('help').classList.remove('hidden'); };
 $('ridePrev').onclick = () => cycleBall(-1);
 $('rideNext').onclick = () => cycleBall(1);
 $('rideExit').onclick = () => setCam('orbit');
@@ -1674,7 +1983,7 @@ $('photoExit').onclick = () => setPhoto(false);
 $('chkForces').onchange = (e) => { S.forces = e.target.checked; };
 $('chkTrail').onchange = (e) => { S.trails = e.target.checked; };
 $('chkKid').onchange = (e) => { S.kid = e.target.checked; world.assist = S.kid; store.set('bc.kid', S.kid); schedulePrediction(); toast(L(S.kid ? 'Kid mode on: slow balls get a gentle push' : 'Kid mode off: pure physics')); };
-function closeModals() { for (const id of ['menu', 'help', 'chModal', 'winModal']) $(id).classList.add('hidden'); }
+function closeModals() { closeMenus(); for (const id of ['help', 'chModal', 'winModal']) $(id).classList.add('hidden'); }
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', (e) => { if (e.target === m) closeModals(); }));
 document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
   const a = b.dataset.act;
@@ -1695,7 +2004,7 @@ $('fileIn').onchange = async (e) => {
   try {
     const j = JSON.parse(await f.text());
     if (S.challenge) exitChallenge();
-    clearBalls(); S.selected = null; sync(j.pieces || []); pushHistory(); closeModals(); toast(L('Loaded! ✨'));
+    clearBalls(); S.selected = null; sync(j.pieces || []); pushHistory(); closeModals(); toast(L('Loaded! ✨')); fitView();
   } catch (err) { toast(L('Could not read that file'), true); }
   e.target.value = '';
 };
@@ -1727,6 +2036,7 @@ function loadDemo() {
   sync(buildDemo());
   pushHistory();
   toast(L('Demo coaster loaded — press ▶ Release!'));
+  fitView();
 }
 
 // ================================================================ main loop
@@ -1801,6 +2111,8 @@ function frame(now) {
   updateArrows();
   hudTick(dt);
   positionSelPop();
+  positionRingTag(now);
+  placeAid.visible = TOOLS[S.tool].type === 'place' && !!S.ghostData && S.cam === 'orbit' && !S.move && !S.photo;
   for (const m of markerGroup.children) if (m.userData.active) m.scale.setScalar(1.15 + Math.sin(now * 0.008) * 0.15);
   for (const m of predGroup.children) if (m.userData.pulse) { const k = 1 + 0.25 * Math.sin(now * 0.01); m.scale.set(k, k, k); }
   if (S.cam === 'pov' && S.follow) {
@@ -1824,19 +2136,20 @@ window.addEventListener('resize', resize);
 // ================================================================ boot
 setLang(store.get('bc.lang', 'en'));
 resize();
-setSide(store.get('bc.side', window.innerWidth > 1100));
+setSide(store.get('bc.side', false));
 renderAll();
 if (store.get('bc.music', false)) { sound.musicOn = true; $('btnMusic').classList.add('on'); }
 const saved = store.get('ballcoaster.v1', null);
 if (saved && Array.isArray(saved.pieces) && saved.pieces.length) { sync(saved.pieces); pushHistory(); }
 else loadDemo();
+fitView(true);
 if (!store.get('ballcoaster.helped', false)) { $('help').classList.remove('hidden'); store.set('ballcoaster.helped', true); }
 requestAnimationFrame(loop);
 startVisitorSignal();
 // debug hooks (used for automated testing; harmless in play)
 window.__bc = {
   world, S, C, insts, pieces: () => pieces, releaseAll, spawnBall, setCam, pred, sync, camera, controls, pickTool, select,
-  markers: markerGroup, ports: () => ({ openOuts, openIns }), startChallenge, exitChallenge, startReplay, stopReplay, setNight, setPhoto, rec,
+  markers: markerGroup, ports: () => ({ openOuts, openIns }), chainLinks, tweakSelected, deletePiece, startInsert, tryAppend, undo, fitView, startChallenge, exitChallenge, startReplay, stopReplay, setNight, setPhoto, rec,
   // advance the game by `sec` seconds of wall time in 1/60 s frames (works even when the tab is throttled)
   run(sec) { let t = lastT; for (let i = 0; i < sec * 60; i++) { t += 1000 / 60; frame(t); } lastT = performance.now(); },
 };

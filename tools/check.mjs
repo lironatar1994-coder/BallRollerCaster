@@ -61,7 +61,7 @@ const tracks = {
   'demo, left branch (lift, loop, funnel)': [buildDemo(), 0],
   'demo, right branch (dive, jump, basket)': [buildDemo(), 1],
   'moving pieces (laser wood, tunnel, water wheel, rails, seesaw)': [chain([
-    ['start', { port: { x: -0.6, y: 0.012, z: 0.9, psi: 0, phi: 0 }, opts: { height: 0.55 } }],
+    ['start', { port: { x: -0.55, y: 0.0084, z: 0.55, psi: 0, phi: 0 }, opts: { height: 0.55 } }],
     ['straight', { style: 'ply', opts: { len: 0.3 } }], ['tunnel'], ['wheel'],
     ['straight', { style: 'rails', opts: { len: 0.3 } }], ['seesaw'], ['straight', { style: 'rails', opts: { len: 0.2 } }], ['cup'],
   ]), 0],

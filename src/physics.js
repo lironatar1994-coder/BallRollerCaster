@@ -25,11 +25,11 @@ export const SURFACES = {
 
 // Ball kinds — no steel here. k = I / (m r²): 2/5 solid sphere, 2/3 thin shell.
 export const BALL_TYPES = {
-  glass:   { name: 'Glass Marble',   radius: 0.0095, density: 2500, k: 0.4,   restitution: 0.66, friction: 0.35, rolling: 0.0012, cd: 0.47, desc: 'Heavy, slick & fast. The classic.' },
-  wood:    { name: 'Wooden Ball',    radius: 0.0100, density: 650,  k: 0.4,   restitution: 0.48, friction: 0.55, rolling: 0.0035, cd: 0.47, desc: 'Light and grippy. Soft clacks.' },
-  rubber:  { name: 'Bouncy Ball',    radius: 0.0090, density: 1100, k: 0.4,   restitution: 0.90, friction: 0.95, rolling: 0.0090, cd: 0.47, desc: 'Boing! Bounces off everything.' },
-  plastic: { name: 'Hollow Plastic', radius: 0.0100, mass: 0.0012,  k: 2 / 3, restitution: 0.62, friction: 0.30, rolling: 0.0025, cd: 0.50, desc: 'Feather-light. Air drag & spin matter.' },
-  clay:    { name: 'Clay Ball',      radius: 0.0095, density: 1700, k: 0.4,   restitution: 0.06, friction: 0.80, rolling: 0.0220, cd: 0.47, desc: 'Squishy. Zero bounce, lazy roller.' },
+  glass:   { name: 'Glass Marble',   radius: 0.0115, density: 2500, k: 0.4,   restitution: 0.66, friction: 0.35, rolling: 0.0012, cd: 0.47, desc: 'Heavy, slick & fast. The classic.' },
+  wood:    { name: 'Wooden Ball',    radius: 0.0120, density: 650,  k: 0.4,   restitution: 0.48, friction: 0.55, rolling: 0.0035, cd: 0.47, desc: 'Light and grippy. Soft clacks.' },
+  rubber:  { name: 'Bouncy Ball',    radius: 0.0110, density: 1100, k: 0.4,   restitution: 0.90, friction: 0.95, rolling: 0.0090, cd: 0.47, desc: 'Boing! Bounces off everything.' },
+  plastic: { name: 'Hollow Plastic', radius: 0.0120, mass: 0.0017,  k: 2 / 3, restitution: 0.62, friction: 0.30, rolling: 0.0025, cd: 0.50, desc: 'Feather-light. Air drag & spin matter.' },
+  clay:    { name: 'Clay Ball',      radius: 0.0115, density: 1700, k: 0.4,   restitution: 0.06, friction: 0.80, rolling: 0.0220, cd: 0.47, desc: 'Squishy. Zero bounce, lazy roller.' },
 };
 
 // ---------------------------------------------------------------- contacts

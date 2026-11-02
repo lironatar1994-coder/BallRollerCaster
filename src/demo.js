@@ -19,7 +19,7 @@ export function buildDemo() {
   };
   const out = (inst, i = 0) => inst.outs[i];
 
-  let p = add('start', { x: -0.62, y: 0.012, z: -0.05, psi: 0, phi: 0 }, { color: 'red', opts: { height: 0.75 } });
+  let p = add('start', { x: 0.03, y: 0.0084, z: -0.02, psi: 0, phi: 0 }, { color: 'red', opts: { height: 0.75 } });
   p = add('straight', out(p), { color: 'orange', opts: { len: 0.3 } });
   p = add('curve', out(p), { color: 'yellow', opts: { angle: 90, radius: 0.12, dir: -1 } });
   p = add('xylo', out(p), { slope: 4 });
@@ -46,6 +46,6 @@ export function buildDemo() {
   p = add('straight', out(p), { color: 'blue', slope: 30, opts: { len: 0.3 } });
   p = add('straight', out(p), { color: 'purple', slope: 0, opts: { len: 0.1 } });
   add('jump', out(p), { color: 'red', opts: { angle: 30 } });
-  add('basket', { x: -0.897, y: 0, z: -0.43, psi: Math.PI / 2, phi: 0 }, { color: 'pink', opts: { height: 0 } });
+  add('basket', { x: -0.247, y: 0.0084, z: -0.4, psi: Math.PI / 2, phi: 0 }, { color: 'pink', opts: { height: 0 } });
   return list;
 }

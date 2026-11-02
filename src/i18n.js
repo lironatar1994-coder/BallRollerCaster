@@ -69,7 +69,7 @@ const HE = {
   '🔒 Shape is locked because pieces are attached after it.': '🔒 הצורה נעולה כי מחוברים אחריו חלקים.',
   '✥ Move': '✥ הזזה', '↺ Stand up': '↺ להעמיד מחדש', '➕ Build from here': '➕ להמשיך מכאן', '🗑 Delete': '🗑 מחיקה',
   'Let go to add it here': 'משחררים כדי להוסיף כאן', 'Drop it on a ring': 'גוררים אל טבעת',
-  'Click to place · height {0} cm (wheel) · Q / E turn': 'לחיצה מניחה · גובה {0} ס״מ (גלגלת) · Q / E סיבוב',
+  'Click to place · height {0} cm (wheel) · Q / E turn · Alt = off grid': 'לחיצה מניחה · גובה {0} ס״מ (גלגלת) · Q / E סיבוב · Alt = בלי רשת',
   'Connected! 🔗': 'מחובר! 🔗', 'Next piece goes here': 'החלק הבא יבוא כאן', 'Now add pieces from the dock below ⬇': 'עכשיו מוסיפים חלקים מהמגש למטה ⬇',
   'Following ball #{0}': 'עוקבים אחרי כדור #{0}', '🎯 Goal! · {0}': '🎯 גול! · {0}', 'Gravity: {0}': 'כבידה: {0}', 'Next slope: {0}': 'שיפוע הבא: {0}',
   'Kid mode on: slow balls get a gentle push': 'מצב ילדים פעיל: כדורים איטיים מקבלים דחיפה עדינה', 'Kid mode off: pure physics': 'מצב ילדים כבוי: פיזיקה טהורה',
@@ -132,4 +132,14 @@ const HE = {
   'Forever Machine': 'מכונת נצח', 'Build a loop where one ball rides a lift again and again.': 'בונים לולאה שבה כדור אחד עולה במעלית שוב ושוב.',
   '2 lift rides': '2 נסיעות במעלית', '3 lift rides': '3 נסיעות במעלית', '5 lift rides': '5 נסיעות במעלית', 'Most lift rides by one ball: {0}': 'הכי הרבה נסיעות במעלית: {0}',
   'Moon Bounce': 'קפיצה על הירח', 'On the Moon, bounce a ball off a trampoline into a goal.': 'על הירח: מקפיצים כדור מטרמפולינה לשער.', 'Bounce into a goal': 'קפיצה לשער',
+  // building as a chain
+  '⤵ Insert after': '⤵ להכניס אחרי', 'the rest of the track moves along': 'שאר המסלול זז איתו',
+  '⤵ Insert mode: pick a piece in the dock to slip it in · Esc to stop': '⤵ מצב הכנסה: בוחרים חלק במגש כדי להשחיל אותו · Esc לסיום',
+  'Only pieces with an exit can go in the middle': 'רק חלק שיש לו יציאה יכול להיכנס באמצע',
+  'Removed — the pieces after it stay where they are': 'הוסר — החלקים שאחריו נשארים במקום',
+  'inserting': 'הכנסה', 'needs ≥ {0} m/s': 'צריך לפחות {0} מ׳/ש׳', 'ball ≈ {0} m/s': 'הכדור ≈ {0} מ׳/ש׳',
+  // compact screen
+  'Choose the ball': 'בחירת כדור', 'More': 'עוד', 'Prediction line': 'קו חיזוי', 'Night light': 'אור לילה', 'Sound': 'צלילים', 'Photo mode': 'מצב צילום',
+  'Show the info panel · I': 'הצגת לוח המידע · I', 'Show the whole coaster · Z': 'להראות את כל המסלול · Z', 'Zoom in': 'התקרבות', 'Zoom out': 'התרחקות',
+  'see everything': 'לראות הכול', 'place off the grid': 'הנחה בלי רשת', 'Info': 'מידע', 'Simulating…': 'מחשב…', 'Track style': 'סוג מסילה',
 };

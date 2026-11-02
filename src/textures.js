@@ -106,21 +106,32 @@ export function wallpaperTexture(base = '#cfe8f7', dot = '#ffffff') {
   });
 }
 
+// a soft round rug: cream centre, gentle pastel border, scattered little stars
 export function rugTexture() {
   return memo('rug', () => {
     const [c, g] = cnv(1024, 1024);
-    const cols = ['#ff8fa3', '#ffd166', '#06d6a0', '#4cc9f0', '#b388ff', '#ffadad', '#caffbf', '#9bf6ff'];
-    for (let i = 0; i < 16; i++) {
-      g.fillStyle = cols[i % cols.length];
-      g.beginPath(); g.arc(512, 512, 512 - i * 32, 0, Math.PI * 2); g.fill();
+    const ring = (r, col) => { g.fillStyle = col; g.beginPath(); g.arc(512, 512, r, 0, Math.PI * 2); g.fill(); };
+    ring(512, '#f2c6cf'); ring(470, '#fbe7d9'); ring(452, '#cfe6f2'); ring(420, '#f7efe3');
+    // scalloped trim
+    g.fillStyle = '#f2c6cf';
+    for (let i = 0; i < 48; i++) { const a = i / 48 * Math.PI * 2; g.beginPath(); g.arc(512 + Math.cos(a) * 470, 512 + Math.sin(a) * 470, 22, 0, Math.PI * 2); g.fill(); }
+    ring(452, '#cfe6f2'); ring(420, '#f7efe3');
+    const star = (x, y, r, col) => {
+      g.fillStyle = col; g.beginPath();
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+      g.fill();
+    };
+    const cols = ['#f6c97a', '#f2b3c2', '#a9d3ec', '#b9e3c6'];
+    for (let i = 0; i < 46; i++) {
+      const a = rnd() * Math.PI * 2, d = 60 + rnd() * 330;
+      star(512 + Math.cos(a) * d, 512 + Math.sin(a) * d, 9 + rnd() * 9, cols[i % cols.length]);
     }
-    g.fillStyle = '#fff6e5'; g.beginPath(); g.arc(512, 512, 70, 0, Math.PI * 2); g.fill();
-    // fibers
-    const img = g.getImageData(0, 0, 1024, 1024), d = img.data;
-    for (let i = 0; i < d.length; i += 4) { const n = (rnd() - 0.5) * 34; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+    // woolly texture
+    const img = g.getImageData(0, 0, 1024, 1024), px = img.data;
+    for (let i = 0; i < px.length; i += 4) { const n = (rnd() - 0.5) * 18; px[i] += n; px[i + 1] += n; px[i + 2] += n; }
     g.putImageData(img, 0, 0);
-    const t = tex(c); t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-    return t;
+    const tx = tex(c); tx.wrapS = tx.wrapT = THREE.ClampToEdgeWrapping;
+    return tx;
   });
 }
 

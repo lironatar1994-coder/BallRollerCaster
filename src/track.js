@@ -95,12 +95,16 @@ function arcPts(R, a0, a1, n, inward) {
   return out;
 }
 const PROFILES = {};
+// a round bead along the top of each wall — the chunky rim of a toy track
+const RB = 0.0027;
+const bead = (cx, side) => ({ side, pts: arcPts(RB, 0, TAU, 12, false).map(([u, v, nu, nv]) => [u + cx, v + WALL, nu, nv]) });
+const beadCap = (cx) => arcPts(RB, 0, TAU, 12, false).slice(0, -1).map(([u, v]) => [u + cx, v + WALL]);
 function makeChannel() {
-  const Ro = RC + TH;
+  const Ro = RC + TH, bx = RC + TH / 2;
   const prims = [
     arc(0, 0, RC, PI, TAU, { side: 0 }),
     seg(-RC, 0, -RC, WALL, { side: -1 }), seg(RC, 0, RC, WALL, { side: 1 }),
-    seg(-Ro, WALL, -RC, WALL, { side: -1 }), seg(RC, WALL, Ro, WALL, { side: 1 }),
+    arc(-bx, WALL, RB, 0, TAU, { side: -1 }), arc(bx, WALL, RB, 0, TAU, { side: 1 }),
     seg(-Ro, 0, -Ro, WALL, { side: -1 }), seg(Ro, 0, Ro, WALL, { side: 1 }),
     arc(0, 0, Ro, PI, TAU, { side: 0 }),
   ];
@@ -108,14 +112,13 @@ function makeChannel() {
     { side: -1, pts: [[-RC, WALL, 1, 0], [-RC, 0, 1, 0]] },
     { side: 0, pts: arcPts(RC, PI, TAU, 16, true) },
     { side: 1, pts: [[RC, 0, -1, 0], [RC, WALL, -1, 0]] },
-    { side: -1, pts: [[-Ro, WALL, 0, 1], [-RC, WALL, 0, 1]] },
-    { side: 1, pts: [[RC, WALL, 0, 1], [Ro, WALL, 0, 1]] },
+    bead(-bx, -1), bead(bx, 1),
     { side: 1, pts: [[Ro, WALL, 1, 0], [Ro, 0, 1, 0]] },
     { side: 0, pts: arcPts(Ro, TAU, PI, 16, false) },
     { side: -1, pts: [[-Ro, 0, -1, 0], [-Ro, WALL, -1, 0]] },
   ];
   const cap = [[-Ro, WALL], [-RC, WALL], ...arcPts(RC, PI, TAU, 16, true).map(p => [p[0], p[1]]), [RC, WALL], [Ro, WALL], ...arcPts(Ro, TAU, PI, 16, false).map(p => [p[0], p[1]])];
-  return { prims, strips, cap };
+  return { prims, strips, cap, capExtra: [beadCap(-bx), beadCap(bx)] };
 }
 function makeTube() {
   const Ro = RC + TH;
@@ -229,9 +232,7 @@ function sweepGeometry(samples, profile, cut) {
     }
   }
   // end caps
-  const capAt = (sm, sign) => {
-    let contour, holes = [];
-    if (profile.cap) contour = profile.cap; else { contour = profile.capOuter; holes = [profile.capInner]; }
+  const capAt = (sm, sign, contour, holes = []) => {
     const all = contour.concat(...holes);
     const tris = THREE.ShapeUtils.triangulateShape(contour.map(p => new THREE.Vector2(p[0], p[1])), holes.map(h => h.map(p => new THREE.Vector2(p[0], p[1]))));
     R.crossVectors(sm.T, sm.U);
@@ -248,7 +249,11 @@ function sweepGeometry(samples, profile, cut) {
       if ((area > 0) === (sign < 0)) idx.push(base + a, base + b, base + c); else idx.push(base + a, base + c, base + b);
     }
   };
-  if (!cut && (profile.cap || profile.capOuter)) { capAt(samples[0], -1); capAt(last(samples), 1); }
+  if (!cut) {
+    const caps = profile.cap ? [[profile.cap, []]] : profile.capOuter ? [[profile.capOuter, [profile.capInner]]] : [];
+    for (const extra of profile.capExtra || []) caps.push([extra, []]);
+    for (const [contour, holes] of caps) { capAt(samples[0], -1, contour, holes); capAt(last(samples), 1, contour, holes); }
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
@@ -316,6 +321,7 @@ const solidMat = (color) => trackMaterial(color === 'clear' ? 'white' : color, '
 const plainMat = (hex, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: hex, roughness: 0.5 }, o));
 const MAT = {
   pillar: new THREE.MeshStandardMaterial({ map: TX.woodTexture('#efd3a6'), roughness: 0.6 }),
+  kit: new THREE.MeshPhysicalMaterial({ color: '#f4efe6', roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.4 }),
   dark: plainMat('#5b4a3a'),
   metal: plainMat('#c9ccd3', { metalness: 0.7, roughness: 0.3 }),
   red: plainMat('#ff4d5e', { roughness: 0.35 }),
@@ -447,7 +453,7 @@ export class LiftDevice {
     this.Lc = 2 * this.H + TAU * this.rs;
     this.N = Math.max(4, Math.round(this.Lc / 0.075));
     this.sp = this.Lc / this.N;
-    this.F = this.Pk.clone().addScaledVector(this.h, 0.014);
+    this.F = this.Pk.clone().addScaledVector(this.h, 0.016);
     this.links = null; this.scoops = null; this.gears = [];
   }
   initState() { return { carried: new Map() }; }
@@ -518,7 +524,7 @@ export class LiftDevice {
     if (this.scoops) {
       for (let i = 0; i < this.N; i++) {
         this.chain(ph + i * this.sp, P, T, N);
-        P.addScaledVector(N, 0.014).addScaledVector(T, -0.0115);
+        P.addScaledVector(N, 0.016).addScaledVector(T, -0.0135);
         X.crossVectors(S, T);
         m.makeBasis(S, T, X).setPosition(P);
         this.scoops.setMatrixAt(i, m);
@@ -692,7 +698,7 @@ export const PIECES = {
       B.meshes.push(pillar, foot, globe, neck, ring, btn);
       const mcols = ['#ff5d5d', '#4c8dff', '#ffd23f', '#3ccf7a', '#9b6bff'];
       for (let i = 0; i < 5; i++) {
-        const mb = new THREE.Mesh(new THREE.SphereGeometry(0.0095, 16, 12), new THREE.MeshPhysicalMaterial({ color: mcols[i], roughness: 0.1, clearcoat: 1 }));
+        const mb = new THREE.Mesh(new THREE.SphereGeometry(0.0115, 16, 12), new THREE.MeshPhysicalMaterial({ color: mcols[i], roughness: 0.1, clearcoat: 1 }));
         mb.position.copy(g0).add(V(Math.cos(i * 2.4) * 0.022, -0.03 + (i > 2 ? 0.018 : 0), Math.sin(i * 2.4) * 0.022));
         B.meshes.push(mb);
       }
@@ -847,7 +853,7 @@ export const PIECES = {
       B.paths.push({ samples: inlet, profile: 'channel', margin1: 0.02 });
       const E = last(inlet).p;
       addStop(B, E.clone().addScaledVector(h, 0.0145).add(V(0, 0.004, 0)), P.psi);
-      const r = 0.0095;
+      const r = 0.0115;
       const Pk = E.clone().addScaledVector(h, 0.011 - r).add(V(0, -(RC - r), 0));
       const exitPsi = P.psi + (d.opts.exit === 'left' ? PI / 2 : d.opts.exit === 'right' ? -PI / 2 : PI);
       const xs = Pk.clone().add(V(0, H + (RC - r) + 0.004, 0)).addScaledVector(heading(exitPsi), 0.012);
@@ -1222,8 +1228,8 @@ export function buildPiece(d) {
       B.autoPillars = B.autoPillars || new Set();
       const len = last(path.samples).s;
       const pts = [];
-      for (let sv = Math.min(0.17, len * 0.5); sv <= len - 0.08; sv += 0.36) pts.push(sv);
-      if (len > 0.15) pts.push(len - 0.03);
+      for (let sv = Math.min(0.2, len * 0.5); sv <= len - 0.1; sv += 0.45) pts.push(sv);
+      if (len > 0.25) pts.push(len - 0.03);
       for (const sv of pts) {
         const sm = path.samples.reduce((a, c) => Math.abs(c.s - sv) < Math.abs(a.s - sv) ? c : a);
         if (sm.U.y > 0.85 && path.profile !== 'tube') {
@@ -1291,22 +1297,25 @@ export function validatePiece(inst, others, roomColliders) {
 }
 
 // support pillars from points down to the first surface below
+// toy-kit supports: a cream post with height notches, a coloured foot, and a clip that
+// hugs the track from below. Returns a group, or null when nothing needs holding up.
 export function buildPillars(inst, raycaster, targets, taken = []) {
-  const geos = [];
+  const posts = [], accents = [];
   const down = V(0, -1, 0);
-  const S = V();
+  const S = V(), m4 = new THREE.Matrix4();
   for (const p of inst.B.pillarPts) {
+    const auto = inst.B.autoPillars?.has(p);
     // a support already stands right here (e.g. where two pieces meet): skip this one
-    if (inst.B.autoPillars?.has(p) && taken.some(t => (t.x - p.x) ** 2 + (t.z - p.z) ** 2 < 0.1 * 0.1 && Math.abs(t.y - p.y) < 0.06)) continue;
+    if (auto && taken.some(t => (t.x - p.x) ** 2 + (t.z - p.z) ** 2 < 0.15 * 0.15 && Math.abs(t.y - p.y) < 0.08)) continue;
     taken.push(p);
-    let best = null;
+    let best = null, sm = null;
     const tries = [V(0, 0, 0)];
     // try sideways offsets when the straight drop would land on another track
     const path = inst.paths[0];
     if (path) {
-      const sm = path.samples.reduce((a, c) => a.p.distanceToSquared(p) < c.p.distanceToSquared(p) ? a : c);
+      sm = path.samples.reduce((a, c) => a.p.distanceToSquared(p) < c.p.distanceToSquared(p) ? a : c);
       S.crossVectors(sm.T, sm.U).setY(0);
-      if (S.lengthSq() > 1e-6) { S.normalize(); tries.push(S.clone().multiplyScalar(0.03), S.clone().multiplyScalar(-0.03)); }
+      if (S.lengthSq() > 1e-6) { S.normalize(); tries.push(S.clone().multiplyScalar(0.034), S.clone().multiplyScalar(-0.034)); }
     }
     for (const off of tries) {
       const o = p.clone().add(off).add(V(0, -0.004, 0));
@@ -1321,26 +1330,55 @@ export function buildPillars(inst, raycaster, targets, taken = []) {
     if (!best) continue;
     const len = best.top.y - best.y;
     if (len < 0.006) continue;
-    const c = new THREE.CylinderGeometry(0.0042, 0.0042, len, 10);
-    c.translate(best.top.x, best.y + len / 2, best.top.z);
-    geos.push(c);
-    if (!best.onTrack) { const f = new THREE.CylinderGeometry(0.011, 0.013, 0.005, 16); f.translate(best.top.x, best.y + 0.0025, best.top.z); geos.push(f); }
+    const { x, z } = best.top;
+    const post = new THREE.CylinderGeometry(0.0085, 0.0085, len, 16);
+    post.translate(x, best.y + len / 2, z);
+    posts.push(post);
+    // notches every 3 cm, like stackable height pieces
+    for (let h = 0.03; h < len - 0.012; h += 0.03) {
+      const ring = new THREE.CylinderGeometry(0.0099, 0.0099, 0.0036, 16);
+      ring.translate(x, best.y + h, z);
+      posts.push(ring);
+    }
+    if (!best.onTrack) {
+      const foot = new THREE.CylinderGeometry(0.016, 0.02, 0.007, 28);
+      foot.translate(x, best.y + 0.003, z);
+      accents.push(foot);
+    }
     if (best.off.lengthSq() > 0) {
-      const br = new THREE.BoxGeometry(0.008, 0.008, 0.008);
-      const mid = p.clone().addScaledVector(best.off, 0.5);
-      const bl = best.off.length();
-      const g2 = new THREE.BoxGeometry(bl + 0.006, 0.006, 0.006);
-      g2.rotateY(Math.atan2(-best.off.z, best.off.x));
-      g2.translate(mid.x, p.y - 0.004, mid.z);
-      geos.push(g2);
-      void br;
+      const mid = p.clone().addScaledVector(best.off, 0.5), bl = best.off.length();
+      const arm = new THREE.BoxGeometry(bl + 0.01, 0.008, 0.01);
+      arm.rotateY(Math.atan2(-best.off.z, best.off.x));
+      arm.translate(mid.x, p.y - 0.004, mid.z);
+      posts.push(arm);
+    }
+    // the clip: a saddle under the channel with two cheeks up its sides
+    if (auto && sm) {
+      const R = V().crossVectors(sm.T, sm.U);
+      m4.makeBasis(sm.T, sm.U, R).setPosition(p);
+      const w = RC + TH + 0.0025;
+      const saddle = new THREE.BoxGeometry(0.018, 0.006, w * 2 + 0.004);
+      saddle.translate(0, -0.002, 0);
+      saddle.applyMatrix4(m4); accents.push(saddle);
+      for (const sx of [-1, 1]) {
+        const cheek = new THREE.BoxGeometry(0.018, 0.016, 0.004);
+        cheek.translate(0, 0.006, sx * (w + 0.0005));
+        cheek.applyMatrix4(m4); accents.push(cheek);
+      }
     }
   }
-  if (!geos.length) return null;
-  const m = new THREE.Mesh(mergeGeometries(geos), MAT.pillar);
-  m.castShadow = true; m.receiveShadow = true;
-  geos.forEach(g => g.dispose());
-  return m;
+  if (!posts.length) return null;
+  const group = new THREE.Group();
+  const make = (geos, mat) => {
+    if (!geos.length) return;
+    const m = new THREE.Mesh(mergeGeometries(geos), mat);
+    m.castShadow = true; m.receiveShadow = true;
+    geos.forEach(g => g.dispose());
+    group.add(m);
+  };
+  make(posts, MAT.kit);
+  make(accents, solidMat(inst.d.color || 'wood'));
+  return group;
 }
 
 export function disposeGroup(g) {

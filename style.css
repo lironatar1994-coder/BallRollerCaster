@@ -37,11 +37,34 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .balldot:hover { transform: scale(1.12); }
 .balldot.on { outline: 3px solid var(--accent); outline-offset: 2px; }
 
-.menu { position: fixed; z-index: 30; background: var(--panel-solid); border-radius: 14px; box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 150px; }
-.menu button { text-align: left; padding: 7px 12px; border-radius: 10px; font-size: 15px; }
+.menu { position: fixed; z-index: 30; background: var(--panel-solid); border-radius: 14px; box-shadow: 0 12px 34px rgba(40, 40, 80, 0.22); padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 150px; }
+.menu button { text-align: start; padding: 7px 12px; border-radius: 10px; font-size: 15px; display: flex; align-items: center; gap: 10px; }
 .menu button:hover { background: #f4f1ff; }
 .menu button.on { background: var(--on); }
 .menu .sub { font-size: 12px; color: var(--muted); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
+.menu i { font-style: normal; width: 20px; text-align: center; }
+.menu kbd { margin-inline-start: auto; }
+#moreMenu { min-width: 250px; }
+#moreMenu button.on { background: none; }
+#moreMenu button.on:hover { background: #f4f1ff; }
+#moreMenu .tick { width: 30px; height: 18px; border-radius: 9px; background: #dcdce6; position: relative; margin-inline-start: auto; flex: 0 0 auto; transition: background .15s; }
+#moreMenu .tick::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform .15s; }
+#moreMenu button.on .tick { background: var(--ok); }
+#moreMenu button.on .tick::after { transform: translateX(12px); }
+#moreMenu .tick + kbd { margin-inline-start: 0; }
+#ballMenu { min-width: 300px; }
+#ballMenu button { align-items: flex-start; }
+#ballMenu .balldot { flex: 0 0 auto; margin-top: 2px; }
+#ballMenu b { font-weight: 600; }
+#ballMenu button > span:last-child { display: flex; flex-direction: column; gap: 1px; line-height: 1.3; }
+.ballpick { padding-inline-end: 8px !important; }
+.ballpick .balldot { width: 22px; height: 22px; }
+.caret { font-style: normal; font-size: 11px; color: var(--muted); }
+.chips.pal { display: grid; grid-template-columns: repeat(6, 26px); gap: 6px; padding: 4px; }
+.chips.pal .swatch { width: 26px; height: 26px; }
+#settings .swatch.pick { width: 24px; height: 24px; }
+#settings .chip.pick { display: flex; align-items: center; gap: 4px; }
 
 /* ---------------------------------------------------------------- bottom dock */
 #dock { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 6px; width: max-content; max-width: calc(100vw - 20px); }
@@ -84,8 +107,21 @@ body.side-open #dock { max-width: calc(100vw - 340px); left: calc(50% - 160px); 
 #side { position: fixed; right: 10px; top: 70px; bottom: 10px; width: 300px; display: flex; flex-direction: column; gap: 8px; z-index: 4; overflow-y: auto; scrollbar-width: none; transition: transform .25s ease; }
 #side::-webkit-scrollbar { display: none; }
 body:not(.side-open) #side { transform: translateX(calc(100% + 20px)); }
-#sideToggle { position: fixed; right: 10px; top: 70px; z-index: 5; width: 28px; height: 40px; border-radius: 12px 0 0 12px; background: var(--panel-solid); box-shadow: var(--shadow); font-size: 13px; color: var(--muted); transition: right .25s ease; }
-body.side-open #sideToggle { right: 310px; }
+#sideToggle { position: fixed; right: 310px; top: 70px; z-index: 5; width: 28px; height: 40px; border-radius: 12px 0 0 12px; background: var(--panel-solid); box-shadow: var(--shadow); font-size: 13px; color: var(--muted); }
+body:not(.side-open) #sideToggle { display: none; }
+#predPill { position: fixed; right: 10px; top: 70px; z-index: 5; display: flex; align-items: center; gap: 7px; max-width: 300px; padding: 6px 14px 6px 10px; border-radius: 999px; background: var(--panel); backdrop-filter: blur(8px); box-shadow: var(--shadow); font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#predPill:hover { background: var(--panel-solid); }
+#predPill .pdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+body.side-open #predPill { display: none; }
+#camPad { position: fixed; right: 10px; bottom: 10px; z-index: 5; display: flex; flex-direction: column; gap: 2px; background: var(--panel); backdrop-filter: blur(8px); border-radius: 14px; box-shadow: var(--shadow); padding: 4px; transition: right .25s ease; }
+#camPad button { width: 36px; height: 34px; border-radius: 10px; font-size: 18px; color: #4a4e66; }
+#camPad button:hover { background: rgba(0, 0, 0, 0.06); }
+body.side-open #camPad { right: 320px; }
+body.riding #camPad, body.replaying #camPad, body.photo #camPad, body.photo #predPill, body.replaying #predPill { display: none; }
+#ringTag { position: fixed; z-index: 4; transform: translateX(-50%); pointer-events: none; background: rgba(43, 45, 66, 0.82); color: #fff; font-size: 12px; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+#ringTag b { font-weight: 600; color: #ffc83d; }
+#ringTag .ins { color: #c9b3ff; font-weight: 600; }
+body.riding #ringTag, body.photo #ringTag, body.replaying #ringTag { display: none; }
 .card { background: var(--panel); backdrop-filter: blur(8px); border-radius: var(--r); box-shadow: var(--shadow); padding: 8px 12px; flex: 0 0 auto; }
 .card h3 { margin: 0; font-size: 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
 .card h3 em { font-style: normal; font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 4px; }
@@ -239,13 +275,11 @@ body[dir="rtl"] .piece .kb { right: auto; left: 5px; }
 body[dir="rtl"] .piece .pl { left: auto; right: 5px; }
 
 /* ---------------------------------------------------------------- responsive */
-@media (max-width: 1650px) {
-  #playGrp > button span, #rightGrp > button span, #camModes span { display: none; }
-  #playGrp > #btnRelease span, #btnSpeed span, #rightGrp > #btnChallenges span, #camModes button.on span { display: inline; }
-  .grp > button { padding: 7px 9px; }
-}
+/* cameras: only the active one shows its name */
+#camModes button:not(.on) span { display: none; }
 @media (max-width: 1250px) {
-  #rightGrp > #btnChallenges span, #camModes span { display: none; }
+  #rightGrp > #btnChallenges span, #ballName { display: none; }
+  .grp > button { padding: 7px 9px; }
 }
 @media (max-width: 1100px) {
   #camModes span { display: none; }

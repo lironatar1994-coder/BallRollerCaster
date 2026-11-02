@@ -36,29 +36,39 @@
   </div>
   <div class="grp" id="playGrp">
     <button id="btnRelease" class="go" data-i18n-title="Release a ball from every start · Space" title="Release a ball from every start · Space"><i>▶</i><span data-i18n>Release</span></button>
-    <div id="ballDots" class="balldots"></div>
-    <button id="btnAuto" data-i18n-title="Keep releasing balls" title="Keep releasing balls"><i>🔁</i><span data-i18n>Auto</span></button>
+    <button id="btnBall" class="ballpick" data-menu data-i18n-title="Choose the ball" title="Choose the ball"><span class="balldot" id="ballDot"></span><span id="ballName"></span><i class="caret">▾</i></button>
+    <button id="btnAuto" data-i18n-title="Keep releasing balls" title="Keep releasing balls"><i>🔁</i></button>
     <button id="btnPause" data-i18n-title="Pause · P" title="Pause · P"><i>⏸</i></button>
-    <button id="btnSpeed" data-i18n-title="Time speed" title="Time speed"><i>⏱</i><span id="speedLabel">1×</span></button>
-    <button id="btnReplay" data-i18n-title="Instant replay of the last seconds · M" title="Instant replay of the last seconds · M"><i>⏪</i><span data-i18n>Replay</span></button>
-    <button id="btnClear" data-i18n-title="Remove all balls · C" title="Remove all balls · C"><i>✖</i><span data-i18n>Clear</span></button>
+    <button id="btnSpeed" data-menu data-i18n-title="Time speed" title="Time speed"><i>⏱</i><span id="speedLabel">1×</span></button>
+    <button id="btnReplay" data-i18n-title="Instant replay of the last seconds · M" title="Instant replay of the last seconds · M"><i>⏪</i></button>
+    <button id="btnClear" data-i18n-title="Remove all balls · C" title="Remove all balls · C"><i>✖</i></button>
   </div>
   <div class="spacer"></div>
   <div class="grp" id="rightGrp">
     <button id="btnChallenges" class="trophy" data-i18n-title="Missions with stars" title="Missions with stars"><i>🏆</i><span data-i18n>Challenges</span></button>
-    <button id="btnPredict" class="on" data-i18n-title="Show where a ball will go" title="Show where a ball will go"><i>🔮</i><span data-i18n>Predict</span></button>
     <button id="btnUndo" data-i18n-title="Undo · Ctrl+Z" title="Undo · Ctrl+Z"><i>↶</i></button>
     <button id="btnRedo" data-i18n-title="Redo · Ctrl+Y" title="Redo · Ctrl+Y"><i>↷</i></button>
-    <button id="btnPhoto" data-i18n-title="Photo mode · K" title="Photo mode · K"><i>📷</i></button>
-    <button id="btnNight" data-i18n-title="Day / night · N" title="Day / night · N"><i>☀️</i></button>
-    <button id="btnMusic" data-i18n-title="Music" title="Music"><i>🎵</i></button>
-    <button id="btnSound" data-i18n-title="Sound on/off" title="Sound on/off"><i>🔊</i></button>
-    <button id="btnLang" data-i18n-title="Language" title="Language"><i>עב</i></button>
-    <button id="btnHelp" data-i18n-title="How to play · H" title="How to play · H"><i>?</i></button>
-    <button id="btnMenu" data-i18n-title="Menu" title="Menu"><i>☰</i></button>
+    <button id="btnMore" data-menu data-i18n-title="More" title="More"><i>⋯</i></button>
   </div>
 </header>
 <div id="speedMenu" class="menu hidden"></div>
+<div id="ballMenu" class="menu hidden"></div>
+<div id="popMenu" class="menu hidden"></div>
+<div id="moreMenu" class="menu hidden">
+  <button id="btnPredict" class="on"><i>🔮</i><span data-i18n>Prediction line</span><b class="tick"></b></button>
+  <button id="btnNight"><i>☀️</i><span data-i18n>Night light</span><b class="tick"></b><kbd>N</kbd></button>
+  <button id="btnMusic"><i>🎵</i><span data-i18n>Music</span><b class="tick"></b></button>
+  <button id="btnSound" class="on"><i>🔊</i><span data-i18n>Sound</span><b class="tick"></b></button>
+  <button id="btnPhoto"><i>📷</i><span data-i18n>Photo mode</span><kbd>K</kbd></button>
+  <button id="btnLang"><i>🌐</i><span id="langLabel">עברית</span></button>
+  <button id="btnHelp"><i>❔</i><span data-i18n>How to play</span><kbd>H</kbd></button>
+  <hr>
+  <button data-act="demo" data-i18n>✨ Load the demo coaster</button>
+  <button data-act="new" data-i18n>🧸 Empty room (start fresh)</button>
+  <button data-act="export" data-i18n>💾 Save to file</button>
+  <button data-act="import" data-i18n>📂 Open a file</button>
+  <input type="file" id="fileIn" accept=".json" hidden>
+</div>
 
 <!-- challenge mission card -->
 <div id="mission" class="hidden"></div>
@@ -100,10 +110,19 @@
     </div>
   </section>
 </aside>
-<button id="sideToggle" data-i18n-title="Show / hide the info panel · I" title="Show / hide the info panel · I">◀</button>
+<button id="sideToggle" data-i18n-title="Show / hide the info panel · I" title="Show / hide the info panel · I">▶</button>
+<button id="predPill" data-i18n-title="Show the info panel · I" title="Show the info panel · I"></button>
+
+<!-- camera pad -->
+<div id="camPad">
+  <button id="camFit" data-i18n-title="Show the whole coaster · Z" title="Show the whole coaster · Z">⤢</button>
+  <button id="camIn" data-i18n-title="Zoom in" title="Zoom in">＋</button>
+  <button id="camOut" data-i18n-title="Zoom out" title="Zoom out">−</button>
+</div>
 
 <!-- floating editor for the selected piece -->
 <div id="selPop" class="hidden"></div>
+<div id="ringTag" class="hidden"></div>
 
 <!-- ride / chase / movie controls -->
 <div id="rideBar">
@@ -133,19 +152,6 @@
 <div id="hint"></div>
 <div id="toast"></div>
 <div id="povHud"><div id="povSpeed">0.0</div><div class="u">m/s</div><div id="povG">1.0 g</div></div>
-
-<div id="menu" class="modal hidden">
-  <div class="card-modal">
-    <h2>Ball Coaster</h2>
-    <button data-act="demo" data-i18n>✨ Load the demo coaster</button>
-    <button data-act="challenges" data-i18n>🏆 Challenges</button>
-    <button data-act="new" data-i18n>🧸 Empty room (start fresh)</button>
-    <button data-act="export" data-i18n>💾 Save to file</button>
-    <button data-act="import" data-i18n>📂 Open a file</button>
-    <button data-act="close" class="ghost" data-i18n>Close</button>
-    <input type="file" id="fileIn" accept=".json" hidden>
-  </div>
-</div>
 
 <div id="chModal" class="modal hidden">
   <div class="card-modal wide">
@@ -184,7 +190,8 @@
         <span><kbd>↑ ← →</kbd> <i data-i18n>straight / curves</i></span><span><kbd>Enter</kbd> <i data-i18n>repeat last piece</i></span><span><kbd>Backspace</kbd> <i data-i18n>remove last</i></span><span><kbd>Del</kbd> <i data-i18n>remove selected</i></span>
         <span><kbd>[ ]</kbd> <i data-i18n>slope</i></span><span><kbd>Q E</kbd> <i data-i18n>turn while placing</i></span><span><kbd>1 2 3 4</kbd> <i data-i18n>cameras</i></span><span><kbd>Tab</kbd> <i data-i18n>next ball</i></span>
         <span><kbd>Space</kbd> <i data-i18n>release</i></span><span><kbd>P</kbd> <i data-i18n>pause</i></span><span><kbd>M</kbd> <i data-i18n>replay</i></span><span><kbd>K</kbd> <i data-i18n>photo</i></span>
-        <span><kbd>N</kbd> <i data-i18n>night</i></span><span><kbd>I</kbd> <i data-i18n>info panel</i></span><span><kbd>Esc</kbd> <i data-i18n>cancel</i></span>
+        <span><kbd>N</kbd> <i data-i18n>night</i></span><span><kbd>I</kbd> <i data-i18n>info panel</i></span><span><kbd>Z</kbd> <i data-i18n>see everything</i></span><span><kbd>Alt</kbd> <i data-i18n>place off the grid</i></span>
+        <span><kbd>Esc</kbd> <i data-i18n>cancel</i></span>
       </div>
     </details>
     <button data-act="close" class="primary" data-i18n>Let's build! 🚀</button>

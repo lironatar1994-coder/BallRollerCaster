@@ -4,15 +4,29 @@ import { RoundedBoxGeometry } from 'three/addons/RoundedBoxGeometry.js';
 import { PlaneCollider, BoxCollider, SphereCollider, CylinderCollider, SURFACES } from './physics.js';
 import * as TX from './textures.js';
 
-export const ROOM = { x0: -2.4, x1: 2.4, z0: -2.0, z1: 2.0, h: 2.6 };
+// The room is modelled in "design" metres and then shrunk as a whole: a toddler-sized room
+// makes the coaster (whose physics stay in real metres) big and readable in it.
+export const ROOM_SCALE = 0.7;
+const DESIGN = { x0: -2.4, x1: 2.4, z0: -2.0, z1: 2.0, h: 2.6 };
+export const ROOM = { x0: DESIGN.x0 * ROOM_SCALE, x1: DESIGN.x1 * ROOM_SCALE, z0: DESIGN.z0 * ROOM_SCALE, z1: DESIGN.z1 * ROOM_SCALE, h: DESIGN.h * ROOM_SCALE };
+
+// colliders are built in design units like the meshes, then scaled once at the end
+function scaleCollider(c, s) {
+  const sv = (v) => v && v.multiplyScalar(s);
+  if (c instanceof PlaneCollider) { c.d *= s; return; }
+  for (const k of ['cx', 'cy', 'cz', 'hx', 'hy', 'hz', 'R', 'y0', 'y1']) if (typeof c[k] === 'number') c[k] *= s;
+  sv(c.min); sv(c.max);
+}
 
 export function buildRoom(scene) {
   const group = new THREE.Group();
   group.name = 'room';
+  group.scale.setScalar(ROOM_SCALE);
   scene.add(group);
   const colliders = [], placeables = [], solids = [];
 
-  const std = (o) => new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.75, metalness: 0 }, o));
+  // the studio reflections are for the toys; walls and furniture only take a little of them
+  const std = (o) => new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.75, metalness: 0, envMapIntensity: 0.25 }, o));
   const M = {
     white: std({ color: '#f6f1e9', roughness: 0.6 }),
     furniture: std({ color: '#fbf7f0', roughness: 0.55 }),
@@ -57,7 +71,7 @@ export function buildRoom(scene) {
     return m;
   };
 
-  const { x0, x1, z0, z1, h } = ROOM;
+  const { x0, x1, z0, z1, h } = DESIGN;
   const W = x1 - x0, D = z1 - z0;
 
   // ---- floor & walls
@@ -291,31 +305,33 @@ export function buildRoom(scene) {
   }
 
   // ---- lights
-  const hemi = new THREE.HemisphereLight('#e6f3ff', '#ffe4c8', 1.15);
+  // lights live in the scene, so their positions are scaled by hand
+  const S = ROOM_SCALE;
+  const hemi = new THREE.HemisphereLight('#e6f3ff', '#ffe4c8', 0.75);
   scene.add(hemi);
   const sun = new THREE.DirectionalLight('#fff0d4', 2.4);
-  sun.position.set(-3.6, 3.4, 0.4);
-  sun.target.position.set(0.4, 0, -0.1);
+  sun.position.set(-3.6 * S, 3.4 * S, 0.4 * S);
+  sun.target.position.set(0.4 * S, 0, -0.1 * S);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, { left: -3.2, right: 3.2, top: 3.2, bottom: -3.2, near: 0.5, far: 9 });
   sun.shadow.bias = -0.0002; sun.shadow.normalBias = 0.012;
   scene.add(sun, sun.target);
   const lamp = new THREE.PointLight('#ffd9a8', 2.2, 7, 1.2);
-  lamp.position.set(0, h - 0.3, 0);
+  lamp.position.set(0, (h - 0.3) * S, 0);
   scene.add(lamp);
   const fill = new THREE.DirectionalLight('#dbe8ff', 0.5);
-  fill.position.set(2, 2, 3);
+  fill.position.set(2 * S, 2 * S, 3 * S);
   scene.add(fill);
   // the desk lamp only matters at night
   const deskLight = new THREE.SpotLight('#ffd27a', 0, 3, 0.9, 0.6, 1.2);
-  deskLight.position.set(-2.17, 0.95, -0.69);
-  deskLight.target.position.set(-1.9, 0.62, -0.4);
+  deskLight.position.set(-2.17 * S, 0.95 * S, -0.69 * S);
+  deskLight.target.position.set(-1.9 * S, 0.62 * S, -0.4 * S);
   scene.add(deskLight, deskLight.target);
 
   const setNight = (on) => {
     sun.intensity = on ? 0.35 : 2.4; sun.color.set(on ? '#8fa8ff' : '#fff0d4');
-    hemi.intensity = on ? 0.18 : 1.15; hemi.color.set(on ? '#7d8cff' : '#e6f3ff'); hemi.groundColor.set(on ? '#2b1f3a' : '#ffe4c8');
+    hemi.intensity = on ? 0.14 : 0.75; hemi.color.set(on ? '#7d8cff' : '#e6f3ff'); hemi.groundColor.set(on ? '#2b1f3a' : '#ffe4c8');
     lamp.intensity = on ? 1.3 : 2.2; lamp.color.set(on ? '#ffb86b' : '#ffd9a8');
     fill.intensity = on ? 0.05 : 0.5;
     deskLight.intensity = on ? 4 : 0;
@@ -325,5 +341,6 @@ export function buildRoom(scene) {
     scene.background.set(on ? '#14132a' : '#f3eee6');
   };
 
-  return { group, colliders, placeables, solids, sun, setNight, teddy: new THREE.Vector3(tx, 0.82, tz) };
+  for (const c of colliders) scaleCollider(c, S);
+  return { group, colliders, placeables, solids, sun, setNight, scale: S, teddy: new THREE.Vector3(tx, 0.82, tz).multiplyScalar(S) };
 }
