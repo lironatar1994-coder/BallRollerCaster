@@ -7,6 +7,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { mergeGeometries } from 'three/addons/BufferGeometryUtils.js';
 import { World, Ball, BALL_TYPES, DT, RotorBody } from './physics.js';
 import { buildRoomKind, ROOM_KINDS } from './rooms.js';
 import { createInsight, starText } from './insight.js';
@@ -300,10 +301,26 @@ function rebuildPillars() {
   const targets = [...room.solids, ...[...insts.values()].map(i => i.group)];
   const taken = [];
   for (const inst of insts.values()) {
+    inst.feet = [];
     const m = buildPillars(inst, probeRay, targets, taken);
     if (m) { m.traverse(o => { o.userData.pieceId = inst.d.id; }); inst.group.add(m); inst.pillars = m; }
   }
+  footShadows();
 }
+// a soft dark patch where every support post meets the floor or the furniture: the eye expects it
+const footGroup = new THREE.Group(); scene.add(footGroup);
+function footShadows() {
+  footGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  footGroup.clear();
+  const feet = [...insts.values()].flatMap(i => i.feet || []);
+  if (!feet.length || !aoTex) return;
+  const geos = feet.map(f => { const g = new THREE.PlaneGeometry(0.075, 0.075); g.rotateX(-Math.PI / 2); g.translate(f.x, f.y + 0.0015, f.z); return g; });
+  const m = new THREE.Mesh(mergeGeometries(geos), footMat || (footMat = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 })));
+  geos.forEach(g => g.dispose());
+  m.renderOrder = 1; m.raycast = () => {};
+  footGroup.add(m);
+}
+let footMat = null;
 function refreshWorld() {
   const cols = [...room.colliders], devs = [];
   for (const inst of insts.values()) { cols.push(...inst.colliders); devs.push(...inst.devices); }
@@ -1039,12 +1056,16 @@ function positionSelPop() {
 // ================================================================ balls
 const ballGeo = new Map();
 const ballMats = new Map();
+// on a computer, glass marbles are real see-through glass with a coloured swirl inside (one extra
+// render of the room per frame); phones and Lite mode keep the painted glass
+const realGlass = (type, look) => type === 'glass' && !look && !phone() && !S.lite;
 function ballMaterial(type, color, look = '') {
-  const k = type + color + look;
+  const fancy = realGlass(type, look), k = type + color + look + (fancy ? '*' : '');
   if (!ballMats.has(k)) {
     const o = { map: TX.marbleTexture(color, type, look), emissive: color, emissiveIntensity: S.night ? 0.55 : 0 };
     let m;
-    if (type === 'glass') m = new THREE.MeshPhysicalMaterial({ ...o, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.03 });
+    if (fancy) m = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.6), transmission: 1, ior: 1.5, thickness: 0.016, roughness: 0.03, clearcoat: 1, clearcoatRoughness: 0.03, attenuationColor: color, attenuationDistance: 0.06, emissive: color, emissiveIntensity: S.night ? 0.4 : 0 });
+    else if (type === 'glass') m = new THREE.MeshPhysicalMaterial({ ...o, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.03 });
     else if (type === 'wood') m = new THREE.MeshStandardMaterial({ ...o, roughness: 0.55 });
     else if (type === 'rubber') m = new THREE.MeshPhysicalMaterial({ ...o, roughness: 0.45, clearcoat: 0.3 });
     else if (type === 'plastic') m = new THREE.MeshPhysicalMaterial({ ...o, roughness: 0.22, clearcoat: 0.8 });
@@ -1053,9 +1074,21 @@ function ballMaterial(type, color, look = '') {
   }
   return ballMats.get(k);
 }
+// the cat's-eye swirl inside a real glass marble: a twisted ribbon
+const swirlGeos = new Map(), swirlMats = new Map();
+function swirl(r, color) {
+  if (!swirlGeos.has(r)) {
+    const g = new THREE.PlaneGeometry(r * 1.55, r * 0.5, 18, 1), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), a = x / (r * 1.55) * Math.PI * 1.4; p.setY(i, y * Math.cos(a)); p.setZ(i, y * Math.sin(a)); }
+    g.computeVertexNormals(); swirlGeos.set(r, g);
+  }
+  if (!swirlMats.has(color)) swirlMats.set(color, new THREE.MeshStandardMaterial({ color, roughness: 0.35, side: THREE.DoubleSide, emissive: color, emissiveIntensity: 0.15 }));
+  return new THREE.Mesh(swirlGeos.get(r), swirlMats.get(color));
+}
 function ballMesh(type, color, r, look) {
   if (!ballGeo.has(r)) ballGeo.set(r, new THREE.SphereGeometry(r, 28, 18));
   const m = new THREE.Mesh(ballGeo.get(r), ballMaterial(type, color, look));
+  if (realGlass(type, look)) m.add(swirl(r, color));
   m.castShadow = true;
   return m;
 }

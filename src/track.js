@@ -2336,6 +2336,8 @@ export function buildPillars(inst, raycaster, targets, taken = []) {
     const len = best.top.y - best.y;
     if (len < 0.006) continue;
     const { x, z } = best.top;
+    // where a post stands on the floor or furniture (not on another track) it gets a soft contact shadow
+    if (!best.onTrack) (inst.feet = inst.feet || []).push({ x, y: best.y, z });
     const post = new THREE.CylinderGeometry(0.0085, 0.0085, len, 16);
     post.translate(x, best.y + len / 2, z);
     posts.push(post);
