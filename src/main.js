@@ -524,7 +524,7 @@ function updateGhost() {
     return;
   }
   const t = TOOLS[S.tool];
-  if (t.type === 'place') { setHint(L('Click a surface to place the {0} · wheel = height · Q / E = turn', L(t.label))); return; }
+  if (t.type === 'place') { setHint(touchScreen() ? L('Tap the floor, bed or desk to place the {0}', L(t.label)) : L('Click a surface to place the {0} · wheel = height · Q / E = turn', L(t.label))); return; }
   updateHeightBar(null);
   clearGhost();
   if (S.insert && t.type === 'tool') setHint(L('⤵ Insert mode: pick a piece in the dock to slip it in · Esc to stop'));
@@ -2233,7 +2233,7 @@ function refreshPlaceGhost() {
   const post = placeAid.getObjectByName('post');
   post.visible = h > 0.02; post.scale.y = Math.max(0.001, h);
   updateHeightBar(p.y + h, p.y);
-  setHint(S.ghostValid ? L('Click to place · height {0} cm (wheel) · Q / E turn · Alt = off grid', (h * 100).toFixed(0)) : '⚠ ' + S.ghostReason);
+  setHint(S.ghostValid ? (touchScreen() ? L('Tap to place · height {0} cm', (h * 100).toFixed(0)) : L('Click to place · height {0} cm (wheel) · Q / E turn · Alt = off grid', (h * 100).toFixed(0))) : '⚠ ' + S.ghostReason);
 }
 canvas.addEventListener('pointerdown', (e) => {
   sound.ensure();
@@ -2302,11 +2302,18 @@ function handleClick(ev) {
   }
   if (marker && marker.kind === 'out') { S.active = marker.key; S.insert = null; select(null); drawMarkers(); renderDock(); sound.click(); toast(L('Next piece goes here')); return; }
   if (t.type === 'place') {
+    // place right where the click or tap lands (a finger has no hover to show the ghost first)
+    lastSurf = pickSurface();
+    if (lastSurf) refreshPlaceGhost(); else { clearGhost(); return; }
     if (!S.ghostData) return;
     if (!S.ghostValid) { toast(S.ghostReason, true); sound.error(); return; }
     const d = JSON.parse(JSON.stringify(S.ghostData)); d.id = S.nextId;
     commit(d);
-    if (d.type === 'start') { S.tool = 'select'; renderDock(); renderSettings(); clearGhost(); updateGhost(); toast(L('Now add pieces from the dock below ⬇')); }
+    if (d.type === 'start') {
+      S.tool = 'select'; renderDock(); renderSettings(); clearGhost(); updateGhost(); toast(L('Now build: tap the arrows next to the ring, or a piece below ⬇'));
+      // the camera comes in close to the new tower, ready to build
+      if (S.ringInfo && S.cam === 'orbit') camAssist.frame(S.ringInfo.p.clone().setY(S.ringInfo.p.y * 0.6), 0.35);
+    }
     else { lastSurf = pickSurface(); refreshPlaceGhost(); }
     return;
   }
