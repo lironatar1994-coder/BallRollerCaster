@@ -1511,6 +1511,7 @@ const camAssist = createCameraAssist({
   S, $, camera, controls, canvas, sound, toast, reduceMotion, flyTo, fitView, setCam, coasterBox, insts,
   get room() { return room; },
   flying: () => camFly.t < 1,
+  placing: () => TOOLS[S.tool].type === 'place',
   // what a double-tap looks at: a piece, a ball, or the room (not furniture that has faded away)
   pickLook: () => raycaster.intersectObjects([trackGroup, ballGroup, ...room.solids, ...room.placeables], true).find(h => h.object.visible && !(h.object.material && h.object.material.opacity < 0.5)) || null,
   // which way the track runs where you are working: the selected piece's end, else the ring

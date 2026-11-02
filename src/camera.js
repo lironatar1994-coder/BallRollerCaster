@@ -200,7 +200,8 @@ export function createCameraAssist(app) {
     if (now - checkedAt < 250) return;
     checkedAt = now;
     let lost = false;
-    if (S.cam === 'orbit' && !S.photo && !S.replay && !S.move && !S.stroke && now - bornAt > 4000) {
+    // (not while you are choosing a spot for a new tower or toy: then looking elsewhere is the point)
+    if (S.cam === 'orbit' && !S.photo && !S.replay && !S.move && !S.stroke && !app.placing() && now - bornAt > 4000) {
       const box = app.coasterBox();
       lost = !box.isEmpty() && !coasterSeen(box);
     }
