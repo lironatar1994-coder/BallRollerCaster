@@ -126,6 +126,8 @@ const TOOLS = {
   switch: { label: 'Flip-Flop', type: 'append', piece: 'switch', icon: 'switch', desc: 'Sends balls left, right, left, right…' },
   turnstile: { label: 'Turnstile', type: 'append', piece: 'turnstile', icon: 'turnstile', desc: 'Three ways out: each ball takes the next one' },
   splitter: { label: 'Speed Splitter', type: 'append', piece: 'splitter', icon: 'splitter', desc: 'Fast balls jump the gap, slow ones drop to the chute below' },
+  hat: { label: 'Magic Hat', type: 'append', piece: 'hat', icon: 'hat', desc: 'In goes one marble… out comes another kind!' },
+  airhill: { label: 'Floaty Hill', type: 'append', piece: 'airhill', icon: 'airhill', desc: 'A hill shaped to the ball’s own flight: it floats over the top' },
   musicbox: { label: 'Music Box', type: 'place', piece: 'musicbox', icon: 'musicbox', desc: 'Pegs on a turning drum drop balls on the beat — select it to write the song' },
   plinko: { label: 'Plinko', type: 'append', piece: 'plinko', icon: 'plinko', desc: 'Bounce down through the pegs — the middle bin scores 5!' },
   xylo: { label: 'Xylophone', type: 'append', piece: 'xylo', icon: 'xylo', desc: 'Plays a tune as the ball rolls over it' },
@@ -151,13 +153,13 @@ const TOOLS = {
   blocks: { label: 'Blocks', type: 'place', piece: 'blocks', icon: 'blocks', desc: 'Toy blocks: a platform to build on' },
   decor: { label: 'Decoration', type: 'place', piece: 'decor', icon: 'decor', desc: 'Flags, arches, lamps… nice things near the track make it more fun' },
 };
-const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge', turnstile: 'turnstile', splitter: 'splitter', plinko: 'plinko', musicbox: 'musicbox' };
+const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge', turnstile: 'turnstile', splitter: 'splitter', plinko: 'plinko', musicbox: 'musicbox', hat: 'hat', airhill: 'airhill' };
 const pieceLabel = (d) => d.type === 'curve' ? L(d.opts.dir > 0 ? 'Curve Left' : 'Curve Right') : d.type === 'helix' ? L(d.opts.dir > 0 ? 'Spiral Left' : 'Spiral Right') : d.type === 'bridge' ? L('Connector') : L(TOOLS[TYPE_TOOL[d.type]].label);
 const DOCK_TOOLS = ['select', 'hand', 'bridge', 'erase', 'paint', 'boxsel'];
 // sorted by what you want the ball to do next
 const DOCK_TABS = [
   ['tracks', 'Paths', ['start', 'straight', 'curveL', 'curveR', 'helixL', 'helixR', 'drop', 'tunnel']],
-  ['tricks', 'Tricks', ['loop', 'jump', 'funnel', 'tramp', 'bumper', 'seesaw', 'wheel', 'booster', 'brake']],
+  ['tricks', 'Tricks', ['loop', 'jump', 'airhill', 'funnel', 'tramp', 'bumper', 'seesaw', 'wheel', 'hat', 'booster', 'brake']],
   ['switches', 'Switches', ['switch', 'turnstile', 'splitter', 'gate', 'sensor']],
   ['lifts', 'Lifts', ['lift', 'screw', 'elevator']],
   ['goals', 'Goals', ['cup', 'plinko', 'basket', 'catcher', 'dominoes', 'pool']],
@@ -438,6 +440,7 @@ function makeData(toolKey, extra = {}, over = null) {
   const opts = Object.assign({}, PIECES[type].defaults, S.opts[type], tool.opts || {}, over || {});
   const d = Object.assign({ id: S.nextId, type, slope: +S.slope.toFixed(5), style: S.style, color: resolveColor(), opts }, extra);
   if (type === 'curve' && !(over && 'bank' in over) && d.port) opts.bank = S.bank === 'auto' ? idealBank(d) ?? 15 : S.bank;
+  if (type === 'airhill' && d.port) { const v = predSpeedAt(V(d.port.x, d.port.y, d.port.z)); opts.v = +(v ?? 1.2).toFixed(2); opts.k = BALL_TYPES[S.ballType].k; }
   return d;
 }
 // ---------------------------------------------------------------- banked curves
@@ -1142,6 +1145,16 @@ const NOTE_COLORS = ['#ff5d5d', '#ff9f43', '#ffd23f', '#3ccf7a', '#2ec4b6', '#4c
 const C = { goals: [], dominoes: false, maxNotes: 0, maxLifts: 0, teddy: false, splash: false, maxPhotos: 0, best: null, maxGadgets: 0 };
 const GADGET_EVENTS = { note: 'xylophone', brush: 'brake', boost: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', lift: 'lift', kick: 'bumper', splash: 'splash', domino: 'dominoes' };
 let lastGoalToast = -1e9;
+// the magic hat: same ball, same speed, new material (and a puff of sparkles)
+const SWAP_ORDER = ['glass', 'wood', 'rubber', 'plastic', 'clay'];
+function magicSwap(b) {
+  const nt = SWAP_ORDER[(SWAP_ORDER.indexOf(b.type) + 1) % SWAP_ORDER.length], d = BALL_TYPES[nt];
+  b.type = nt; b.def = d; b.r = d.radius;
+  b.m = d.mass ?? d.density * (4 / 3) * Math.PI * b.r ** 3; b.I = d.k * b.m * b.r * b.r;
+  if (!ballGeo.has(b.r)) ballGeo.set(b.r, new THREE.SphereGeometry(b.r, 28, 18));
+  b.mesh.geometry = ballGeo.get(b.r); b.mesh.material = ballMaterial(nt, b.color, b.look);
+  sparkle(b.pos, '#c9b3ff', 10); sound.star(1);
+}
 function onWorldEvent(type, a, b, c, d) {
   // which ball this event is about (for ride reports and the watching toys)
   const ball = type === 'impact' || type === 'kick' || type === 'splash' || type === 'clack' ? a : b instanceof Ball ? b : null;
@@ -1161,6 +1174,7 @@ function onWorldEvent(type, a, b, c, d) {
   else if (type === 'splash') { sound.splash(b); splashFx(a.pos, b); sticker('splash'); if (a.ch) { C.splashes.push({ ride: world.time - a.stats.born, air: Math.max(a.ch.maxAir, a.ch.air) }); a.ch.splash = true; C.splash = true; if (!a.ch.gadgets.has('splash')) a.ch.gadgets.add('splash'); } }
   else if (type === 'sensor') { sensorEffect(a, b); if (b.ch) b.ch.gadgets.add('sensor'); }
   else if (type === 'photo') { takeBallPhoto(a, b); if (b.ch) { b.ch.photos++; C.maxPhotos = Math.max(C.maxPhotos, b.ch.photos); } }
+  else if (type === 'hat') { magicSwap(b); if (b.ch) b.ch.gadgets.add('hat'); }
   else if (type === 'clack') sound.clack(c);
   else if (type === 'note') { sound.note(a); sparkle(b.pos, NOTE_COLORS[a], 4); if (b.ch) { b.ch.notes++; C.maxNotes = Math.max(C.maxNotes, b.ch.notes); } }
   else if (type === 'goal') {

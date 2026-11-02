@@ -184,6 +184,7 @@ const HE = {
   'Back to where you are building': 'חזרה למקום שבו בונים',
   'Big buttons for small hands': 'כפתורים גדולים לידיים קטנות', 'Tap it again to build it here': 'הקישו שוב כדי לבנות כאן', '{0} stickers unlock this': '{0} מדבקות פותחות את זה',
   'Candy stripes': 'פסי סוכריה', 'Galaxy': 'גלקסיה', 'Smiley': 'סמיילי', 'Classic': 'קלאסי',
+  'Magic Hat': 'כובע קסמים', 'In goes one marble… out comes another kind!': 'נכנסת גולה אחת… ויוצאת גולה מסוג אחר!', 'Floaty Hill': 'גבעת ריחוף', 'A hill shaped to the ball’s own flight: it floats over the top': 'גבעה בצורת המעוף של הכדור עצמו: הוא מרחף מעל הפסגה',
   'Paths': 'מסילות', 'Tricks': 'תעלולים', 'Switches': 'מפצלים', 'Lifts': 'מעליות', 'Goals': 'שערים', 'Music & room': 'מוזיקה וחדר',
   'Settings': 'הגדרות', 'Done': 'סיום', 'Building helpers': 'עזרים לבנייה', 'Room and screen': 'חדר ומסך', 'Build pad by the ring': 'לוח בנייה ליד הטבעת',
   'Lite mode (smoother on slow phones)': 'מצב קל (חלק יותר בטלפונים איטיים)', 'Show frame time': 'הצגת זמן פריים', 'Running slowly? Tap here for Lite mode': 'רץ לאט? הקישו כאן למצב קל',

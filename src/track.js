@@ -746,6 +746,22 @@ export class SensorDevice {
   }
 }
 
+// the magic hat: a ball rolling past its middle is turned into the next material
+export class HatDevice {
+  constructor(o) { Object.assign(this, o); this.col = null; } // sMid
+  initState() { return { seen: new Map() }; }
+  step(world) {
+    const st = world.devState(this);
+    for (const b of world.balls) {
+      if (!onCol(world, b, this.col, 0.02)) continue;
+      const prev = st.seen.get(b.id);
+      st.seen.set(b.id, b.tkS);
+      if (prev !== undefined && prev < this.sMid && b.tkS >= this.sMid) world.emit('hat', this, b);
+    }
+    if (st.seen.size > 200) st.seen.clear();
+  }
+}
+
 // Archimedes screw: the ball sits in the thread and is wound slowly upwards
 export class ScrewDevice {
   constructor(o) { Object.assign(this, o); this.rotor = null; } // Pk, axis, h, S, R, H, pitch, vy, exitPos, exitDir
@@ -1168,6 +1184,54 @@ export const PIECES = {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.002, 0.03, 8), MAT.metal);
       pole.position.copy(sign.position).add(V(0, -0.016, 0));
       B.meshes.push(sign, pole);
+    },
+  },
+  hat: {
+    label: 'Magic Hat', kind: 'append', defaults: {},
+    build(d, B, P) {
+      // the ball rolls in under a top hat… and a different marble rolls out
+      const L = 0.16, ph1 = Math.max(d.slope, 0.03), sMid = 0.08;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
+      const dev = new HatDevice({ sMid });
+      B.paths.push({ samples: s, profile: 'channel', bind: (col) => { dev.col = col; } });
+      B.outs.push(endPort(s, P.psi, ph1));
+      B.devices.push(dev);
+      const c = sampleAt(s, sMid).p.clone(), y0 = c.y - RC + 0.012;
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.04, 0.075, 32), MAT.black);
+      crown.position.set(c.x, y0 + 0.0375, c.z);
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.004, 40), MAT.black);
+      brim.position.set(c.x, y0, c.z);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.0405, 0.0405, 0.014, 32, 1, true), MAT.red);
+      band.position.set(c.x, y0 + 0.012, c.z);
+      const star = new THREE.Mesh(new THREE.CircleGeometry(0.014, 5), plainMat('#ffd23f', { emissive: '#ffb000', emissiveIntensity: 0.4 }));
+      star.rotation.x = -PI / 2; star.position.set(c.x, y0 + 0.0755, c.z);
+      B.meshes.push(crown, brim, band, star);
+      B.probes = [crown.position.clone()];
+    },
+  },
+  airhill: {
+    label: 'Floaty Hill', kind: 'append', defaults: { v: 1.2, k: 0.4 },
+    build(d, B, P) {
+      // A hill whose top follows the ball's own flight: up a curve, over a parabola that a ball
+      // arriving at speed v flies along by itself (so it floats, weightless), and down again.
+      // Along a ballistic path the pitch turns at dφ/ds = g·cos³φ / vx², vx being its speed across.
+      const g = 9.81, th = 25 * DEG, R1 = 0.1, ph1 = Math.max(d.slope, 0.03), p0 = P.phi;
+      // the climbing curve rises R1·(cos p0 − cos θ); the parabola's first half another vx²·tan²θ / 2g.
+      // Rolling, a part of the energy is spin (factor 2/(1+k)), so at the top: vx² = (v² − f·g·rise) / (1 + f·tan²θ / 2)
+      const rise1 = R1 * (Math.cos(p0) - Math.cos(th)), f = 2 / (1 + d.opts.k);
+      let vx2 = (d.opts.v ** 2 - f * g * rise1) / (1 + f * Math.tan(th) ** 2 / 2);
+      vx2 = Math.max(0.04, vx2);
+      // build the pitch as a function of arc length, step by step
+      const ds = 0.001, phis = [];
+      let ph = p0;
+      while (ph > -th) { phis.push(ph); ph -= ds / R1; }
+      while (ph < th) { phis.push(ph); ph += g * Math.cos(ph) ** 3 / vx2 * ds; if (phis.length > 4000) break; }
+      while (ph > ph1) { phis.push(ph); ph -= ds / R1; }
+      phis.push(ph1);
+      const L = (phis.length - 1) * ds;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: phis[Math.min(phis.length - 1, Math.round(x / ds))] }));
+      B.paths.push({ samples: s, profile: d.style, margin1: 0.003 });
+      B.outs.push(endPort(s, P.psi, ph1));
     },
   },
   plinko: {

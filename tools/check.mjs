@@ -80,6 +80,11 @@ const tracks = {
     ['start', { port: { x: -0.5, y: 0.0084, z: 0.5, psi: 0, phi: 0 }, opts: { height: 0.75 } }], ['straight', { slope: 30, opts: { len: 0.5 } }],
     ['curve', { style: 'rails', opts: { angle: 180, radius: 0.08, dir: -1, bank: 25 } }], ['straight', { style: 'rails', opts: { len: 0.2 } }], ['cup'],
   ]), 0],
+  // a hill shaped for a 1 m/s ball: every ball floats over the top and still lands back on the track
+  'floaty hill and magic hat': [chain([
+    ['start', { port: { x: -0.55, y: 0.0084, z: 0.45, psi: 0, phi: 0 }, opts: { height: 0.45 } }], ['straight', { slope: 14, opts: { len: 0.25 } }],
+    ['airhill', { opts: { v: 1.0 } }], ['hat'], ['straight', { opts: { len: 0.15 } }], ['cup'],
+  ]), 0],
   // a ball dropped down the music box's first lane rolls on into a cup
   'music box lane into a cup': [chain([
     ['musicbox', { port: { x: -0.4, y: 0.0084, z: 0.45, psi: 0, phi: 0 }, opts: { height: 0.25 } }], ['straight', { opts: { len: 0.2 } }], ['cup'],
