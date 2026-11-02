@@ -746,6 +746,32 @@ export class SensorDevice {
   }
 }
 
+// The hammer: a heavy pendulum held cocked back by a latch. When a ball has come to rest in the
+// dip below it, the latch lets go: it swings down, whacks the ball up the ramp, and a few seconds
+// later winds itself back up.
+export class HammerBody extends RotorBody {
+  initState() { return { th: this.th0, w: 0, hitW: 0, latched: true, still: 0, freeAt: 0 }; }
+  step(world, dt) {
+    const st = world.devState(this);
+    if (st.latched) {
+      st.th = this.th0; st.w = 0;
+      // a ball sitting still in the dip trips the latch
+      let waiting = false;
+      for (const b of world.balls) if (!b.dead && !b.collected && b.tkCol === this.dip && world.time - b.tkT < 0.01 && b.vel.lengthSq() < 0.05 * 0.05) { waiting = true; break; }
+      st.still = waiting ? st.still + dt : 0;
+      if (st.still > 0.35) { st.latched = false; st.freeAt = world.time; world.emit('gate', this); }
+      return;
+    }
+    if (world.time - st.freeAt > 2.6) {
+      // wind back up, slowly, then latch again
+      st.w = 0; st.th += Math.sign(this.th0 - st.th) * Math.min(Math.abs(this.th0 - st.th), 1.6 * dt);
+      if (Math.abs(st.th - this.th0) < 1e-3) { st.latched = true; st.still = 0; }
+      return;
+    }
+    super.step(world, dt);
+  }
+}
+
 // the magic hat: a ball rolling past its middle is turned into the next material
 export class HatDevice {
   constructor(o) { Object.assign(this, o); this.col = null; } // sMid
@@ -1184,6 +1210,105 @@ export const PIECES = {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.002, 0.03, 8), MAT.metal);
       pole.position.copy(sign.position).add(V(0, -0.016, 0));
       B.meshes.push(sign, pole);
+    },
+  },
+  hammer: {
+    label: 'Hammer', kind: 'append', defaults: {},
+    build(d, B, P) {
+      // the track dips into a little felt-lined valley (a ball soon comes to rest there) and climbs
+      // out up a ramp too high to roll up alone; the hammer hangs over the valley
+      const h = heading(P.psi), S = V().crossVectors(h, UP).normalize();
+      const a0 = 0.04, W = 0.14, up = 0.2, flat = 0.1, ph1 = Math.max(d.slope, 0.02);
+      const phiAt = (x) => x < a0 ? lerpE(P.phi, 0.3, x / a0) : x < a0 + W ? 0.3 - 0.7 * (x - a0) / W : x < a0 + W + up ? -0.4 : lerpE(-0.4, ph1, (x - a0 - W - up) / flat);
+      const sLow = a0 + W * 0.3 / 0.7, sSplit = sLow + 0.03;
+      const s1 = turtle(P.p, sSplit, x => ({ psi: P.psi, phi: phiAt(x) }));
+      const s2 = turtle(last(s1).p, a0 + W + up + flat - sSplit, x => ({ psi: P.psi, phi: phiAt(sSplit + x) }));
+      const felt = { samples: s1, profile: 'channel', surf: SURFACES.soft, margin1: 0.004 };
+      B.paths.push(felt, { samples: s2, profile: 'channel', margin0: 0.004 });
+      B.outs.push(endPort(s2, P.psi, ph1));
+      // where a ball comes to rest: the bottom of the valley
+      const low = sampleAt(s1, sLow), ball = low.p.clone().addScaledVector(low.U, -(RC - 0.0115));
+      const Lh = 0.14, head = 0.009;
+      const pivot = ball.clone().add(V(0, Lh, 0)).addScaledVector(h, -(0.0115 + head + 0.001));
+      const boxes = [{ x: 0, y: -Lh, z: 0, hu: head, hv: head, hw: RC - 0.003 }];
+      const mass = 0.045; // heavy enough that even a clay ball makes it up the ramp
+      const body = new HammerBody({ pivot, axis: S, e1: h, boxes, J: mass * Lh * Lh + 2e-6, mass, com: [0, -Lh], damping: 2e-5, min: -2.4, max: 1.9, th0: -2.2, bounce: 0.2, surf: SURFACES.wood });
+      felt.bind = (col) => { body.dip = col; };
+      B.colliders.push(body.collider); B.devices.push(body);
+      // the look: a wooden mallet on a red arm, hung from a little gallows beside the track
+      const holder = new THREE.Group();
+      holder.position.copy(pivot);
+      holder.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(h, UP, S));
+      const arm = new THREE.Group(); holder.add(arm);
+      const stick = new THREE.Mesh(new THREE.BoxGeometry(0.006, Lh, 0.006), MAT.red); stick.position.y = -Lh / 2 + 0.004; arm.add(stick);
+      const mallet = new THREE.Mesh(new THREE.CylinderGeometry(head * 1.1, head * 1.1, (RC - 0.003) * 2, 20), MAT.pillar);
+      mallet.rotation.x = PI / 2; mallet.position.y = -Lh; arm.add(mallet);
+      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, (RC + TH) * 2 + 0.03, 10), MAT.metal); pin.rotation.x = PI / 2; holder.add(pin);
+      for (const sd of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.008, Lh + 0.03, 0.008), null);
+        post.position.set(0, -(Lh + 0.03) / 2 + 0.006, sd * (RC + TH + 0.014)); post.userData.paint = 'solid'; holder.add(post);
+      }
+      body.view = (th) => { arm.rotation.z = th; };
+      B.meshes.push(holder);
+      B.probes = [pivot.clone(), pivot.clone().addScaledVector(h, -Lh * 0.9).add(V(0, Lh * 0.3, 0))];
+    },
+  },
+  bucket: {
+    label: 'Tipping Bucket', kind: 'append', defaults: { n: 3 },
+    build(d, B, P) {
+      // Balls drop off the track into a bucket on a pivot. A counterweight holds it upright until about
+      // n glass marbles are inside (more of the lighter ones); then it tips forward, pours them all into
+      // the chute below, and swings back. Nothing is scripted: the marbles' weight does it.
+      const h = heading(P.psi), S = V().crossVectors(h, UP).normalize();
+      const bl = 0.03, bw = RC, H = 0.05, ux = 0.04, lip = 0.006; // half length, half width, wall height, centre ahead of the pivot, front lip
+      // the track bends straight down in a short glass tube, so marbles drop gently into the back of the
+      // bucket instead of flying across it
+      const Rt = 0.04, Lt = Math.max(0.01, (PI / 2 - P.phi) * Rt);
+      const tube = turtle(P.p, Lt, x => ({ psi: P.psi, phi: P.phi + (PI / 2 - P.phi) * x / Lt }));
+      B.paths.push({ samples: tube, profile: 'tube', margin1: 0 });
+      const te = last(tube).p, rBall = 0.0115;
+      const pivot = te.clone().addScaledVector(h, -(ux - bl + rBall + 0.002)).add(V(0, -0.04, 0));
+      // a scoop: floor, back and side walls, and only a low lip at the front, so marbles pour out over it
+      // once the bucket has tipped about 40° (where it meets its stop)
+      const boxes = [
+        { x: ux, y: -0.012, hu: bl, hv: 0.002, hw: bw + 0.0015 },
+        { x: ux - bl, y: -0.01 + H / 2, hu: 0.0015, hv: H / 2, hw: bw + 0.0015 },
+        { x: ux + bl, y: -0.01 + lip / 2, hu: 0.0015, hv: lip / 2, hw: bw + 0.0015 },
+        { x: ux, y: -0.01 + H / 2, z: -bw, hu: bl, hv: H / 2, hw: 0.0015 },
+        { x: ux, y: -0.01 + H / 2, z: bw, hu: bl, hv: H / 2, hw: 0.0015 },
+      ];
+      // own weight: a light scoop ahead of the pivot, a counterweight hanging behind and below it, so it
+      // always pulls the scoop back. At rest it leans back 7°, so marbles roll to the back wall (2.15 cm
+      // ahead of the pivot), the next sits in front of it (4.45 cm), the third on top (≈3.3 cm). The weight
+      // is set between those sums, so it tips as the nth glass marble lands (more of the lighter ones);
+      // tipping, the marbles roll to the lip and the lean grows, so it goes all the way and pours
+      const mb = 0.004, cwx = -0.03, cwy = -0.015, ballM = 0.0057;
+      // above what one marble fewer weighs even rolled up to the lip, below what n marbles weigh at the back
+      const arms = { 2: 0.062, 3: 0.097 }[d.opts.n] || 0.062;
+      const mcw = (mb * ux + arms * ballM) / -cwx, M = mb + mcw;
+      const com = [(mb * ux + mcw * cwx) / M, (mb * 0.012 + mcw * cwy) / M];
+      // a heavy hub (+3e-4 kg·m²) so one landing marble can't knock it over
+      const body = new RotorBody({ pivot, axis: S, e1: h, boxes, J: mb * 0.0012 + mcw * (cwx * cwx + cwy * cwy) + 3e-4, mass: M, com, damping: 4e-4, min: -1.3, max: 0.12, th0: 0.12, bounce: 0.05, surf: SURFACES.soft }); // tips to 75°: past 61° a marble rolls over the 6 mm lip
+      B.colliders.push(body.collider); B.devices.push(body);
+      // the chute that catches the pour, just below the lip when the scoop has tipped
+      const q = pivot.clone().addScaledVector(h, 0.02).add(V(0, -0.092, 0));
+      const ex = turtle(q, 0.16, x => ({ psi: P.psi, phi: lerpE(0.2, Math.max(d.slope, 0.03), x / 0.16) }));
+      B.paths.push({ samples: ex, profile: 'channel', margin0: 0.02 });
+      B.outs.push(endPort(ex, P.psi, Math.max(d.slope, 0.03)));
+      // the look: the bucket in the track's colour, a dark weight on an arm, a stand and a pin
+      const holder = new THREE.Group();
+      holder.position.copy(pivot);
+      holder.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(h, UP, S));
+      const tub = new THREE.Group(); holder.add(tub);
+      for (const bx of boxes) { const m = new THREE.Mesh(new THREE.BoxGeometry(bx.hu * 2, bx.hv * 2, bx.hw * 2), null); m.position.set(bx.x, bx.y, bx.z || 0); m.userData.paint = 'solid'; tub.add(m); }
+      const rod = new THREE.Mesh(new THREE.BoxGeometry(-cwx, 0.004, 0.006), MAT.metal); rod.position.set(cwx / 2, cwy, 0); tub.add(rod);
+      const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.02, 18), MAT.dark); weight.rotation.x = PI / 2; weight.position.set(cwx, cwy, 0); tub.add(weight);
+      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, (bw + 0.0015) * 2 + 0.02, 8), MAT.metal); pin.rotation.x = PI / 2; holder.add(pin);
+      for (const sd of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.04, 0.006), null); post.position.set(0, -0.02, sd * (bw + 0.012)); post.userData.paint = 'solid'; holder.add(post); }
+      body.view = (th) => { tub.rotation.z = th; };
+      B.meshes.push(holder);
+      B.pillarPts.push(pivot.clone().add(V(0, -0.04, 0)));
+      B.probes = [pivot.clone().addScaledVector(h, ux).add(V(0, 0.02, 0)), pivot.clone().addScaledVector(h, cwx), q.clone()];
     },
   },
   hat: {
@@ -2039,7 +2164,7 @@ export function buildPiece(d) {
     const prof = PROFILES[path.profile] || PROFILES.channel;
     const prims = path.cut ? cutPrims(prof.prims, path.cut.side, path.cut.s0) : prof.prims;
     const pf = path.profile;
-    const surf = pf === 'tube' ? SURFACES.glass : pf === 'rails' ? SURFACES.metal : (color === 'wood' || pf === 'ply') ? SURFACES.wood : SURFACES.plastic;
+    const surf = path.surf || (pf === 'tube' ? SURFACES.glass : pf === 'rails' ? SURFACES.metal : (color === 'wood' || pf === 'ply') ? SURFACES.wood : SURFACES.plastic);
     const col = new SweepCollider(path.samples, prims, surf, { margin0: path.margin0, margin1: path.margin1, branchDev: path.branchDev, branchIdx: path.branchIdx, onRoll: path.onRoll });
     if (path.branchDev) path.branchDev.branches[path.branchIdx] = col;
     if (path.bind) path.bind(col);

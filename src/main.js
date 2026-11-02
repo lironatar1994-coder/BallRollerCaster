@@ -126,6 +126,8 @@ const TOOLS = {
   switch: { label: 'Flip-Flop', type: 'append', piece: 'switch', icon: 'switch', desc: 'Sends balls left, right, left, right…' },
   turnstile: { label: 'Turnstile', type: 'append', piece: 'turnstile', icon: 'turnstile', desc: 'Three ways out: each ball takes the next one' },
   splitter: { label: 'Speed Splitter', type: 'append', piece: 'splitter', icon: 'splitter', desc: 'Fast balls jump the gap, slow ones drop to the chute below' },
+  hammer: { label: 'Hammer', type: 'append', piece: 'hammer', icon: 'hammer', desc: 'A ball that stops under it gets whacked up the ramp — light balls fly further' },
+  bucket: { label: 'Tipping Bucket', type: 'append', piece: 'bucket', icon: 'bucket', desc: 'Fills up with marbles, then tips them all out at once' },
   hat: { label: 'Magic Hat', type: 'append', piece: 'hat', icon: 'hat', desc: 'In goes one marble… out comes another kind!' },
   airhill: { label: 'Floaty Hill', type: 'append', piece: 'airhill', icon: 'airhill', desc: 'A hill shaped to the ball’s own flight: it floats over the top' },
   musicbox: { label: 'Music Box', type: 'place', piece: 'musicbox', icon: 'musicbox', desc: 'Pegs on a turning drum drop balls on the beat — select it to write the song' },
@@ -153,13 +155,13 @@ const TOOLS = {
   blocks: { label: 'Blocks', type: 'place', piece: 'blocks', icon: 'blocks', desc: 'Toy blocks: a platform to build on' },
   decor: { label: 'Decoration', type: 'place', piece: 'decor', icon: 'decor', desc: 'Flags, arches, lamps… nice things near the track make it more fun' },
 };
-const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge', turnstile: 'turnstile', splitter: 'splitter', plinko: 'plinko', musicbox: 'musicbox', hat: 'hat', airhill: 'airhill' };
+const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge', turnstile: 'turnstile', splitter: 'splitter', plinko: 'plinko', musicbox: 'musicbox', hat: 'hat', airhill: 'airhill', hammer: 'hammer', bucket: 'bucket' };
 const pieceLabel = (d) => d.type === 'curve' ? L(d.opts.dir > 0 ? 'Curve Left' : 'Curve Right') : d.type === 'helix' ? L(d.opts.dir > 0 ? 'Spiral Left' : 'Spiral Right') : d.type === 'bridge' ? L('Connector') : L(TOOLS[TYPE_TOOL[d.type]].label);
 const DOCK_TOOLS = ['select', 'hand', 'bridge', 'erase', 'paint', 'boxsel'];
 // sorted by what you want the ball to do next
 const DOCK_TABS = [
   ['tracks', 'Paths', ['start', 'straight', 'curveL', 'curveR', 'helixL', 'helixR', 'drop', 'tunnel']],
-  ['tricks', 'Tricks', ['loop', 'jump', 'airhill', 'funnel', 'tramp', 'bumper', 'seesaw', 'wheel', 'hat', 'booster', 'brake']],
+  ['tricks', 'Tricks', ['loop', 'jump', 'airhill', 'funnel', 'tramp', 'bumper', 'hammer', 'seesaw', 'bucket', 'wheel', 'hat', 'booster', 'brake']],
   ['switches', 'Switches', ['switch', 'turnstile', 'splitter', 'gate', 'sensor']],
   ['lifts', 'Lifts', ['lift', 'screw', 'elevator']],
   ['goals', 'Goals', ['cup', 'plinko', 'basket', 'catcher', 'dominoes', 'pool']],
@@ -174,6 +176,7 @@ const OPTIONS = {
   curve: [['dir', 'Turn', [[1, '↰ Left'], [-1, '↱ Right']]], ['angle', 'Angle', [[45, '45°'], [90, '90°'], [180, '180°']]], ['radius', 'Radius', [[0.08, 'Tight'], [0.12, 'Medium'], [0.2, 'Wide']]], ['bank', 'Bank', [[0, 'Flat'], [15, '15°'], [30, '30°']]]],
   helix: [['dir', 'Turn', [[1, '↰ Left'], [-1, '↱ Right']]], ['turns', 'Turns', [[1, '1'], [2, '2'], [3, '3']]], ['radius', 'Size', [[0.09, 'S'], [0.11, 'M'], [0.15, 'L']]]],
   loop: [['radius', 'Size', [[0.07, 'S'], [0.08, 'M'], [0.11, 'L']]]],
+  bucket: [['n', 'Counterweight', [[2, 'Light'], [3, 'Heavy']]]],
   splitter: [['speed', 'Splits at', [[0.6, '0.6 m/s'], [0.75, '0.75 m/s'], [0.9, '0.9 m/s']]]],
   plinko: [['size', 'Height', [[0.2, cm], [0.26, cm], [0.34, cm]]]],
   musicbox: [['bpm', 'Tempo', [[90, 'Slow'], [120, 'Medium'], [150, 'Fast']]], ['height', 'Height', [[0.12, cm], [0.25, cm], [0.4, cm]]]],

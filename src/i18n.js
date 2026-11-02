@@ -185,6 +185,8 @@ const HE = {
   'Big buttons for small hands': 'כפתורים גדולים לידיים קטנות', 'Tap it again to build it here': 'הקישו שוב כדי לבנות כאן', '{0} stickers unlock this': '{0} מדבקות פותחות את זה',
   'Candy stripes': 'פסי סוכריה', 'Galaxy': 'גלקסיה', 'Smiley': 'סמיילי', 'Classic': 'קלאסי',
   'Magic Hat': 'כובע קסמים', 'In goes one marble… out comes another kind!': 'נכנסת גולה אחת… ויוצאת גולה מסוג אחר!', 'Floaty Hill': 'גבעת ריחוף', 'A hill shaped to the ball’s own flight: it floats over the top': 'גבעה בצורת המעוף של הכדור עצמו: הוא מרחף מעל הפסגה',
+  'Hammer': 'פטיש', 'A ball that stops under it gets whacked up the ramp — light balls fly further': 'כדור שנעצר מתחתיו מקבל מכה במעלה הרמפה — כדורים קלים עפים רחוק יותר',
+  'Tipping Bucket': 'דלי מתהפך', 'Fills up with marbles, then tips them all out at once': 'מתמלא בגולות ואז שופך את כולן בבת אחת', 'Counterweight': 'משקל נגד', 'Light': 'קל', 'Heavy': 'כבד',
   'Paths': 'מסילות', 'Tricks': 'תעלולים', 'Switches': 'מפצלים', 'Lifts': 'מעליות', 'Goals': 'שערים', 'Music & room': 'מוזיקה וחדר',
   'Settings': 'הגדרות', 'Done': 'סיום', 'Building helpers': 'עזרים לבנייה', 'Room and screen': 'חדר ומסך', 'Build pad by the ring': 'לוח בנייה ליד הטבעת',
   'Lite mode (smoother on slow phones)': 'מצב קל (חלק יותר בטלפונים איטיים)', 'Show frame time': 'הצגת זמן פריים', 'Running slowly? Tap here for Lite mode': 'רץ לאט? הקישו כאן למצב קל',
