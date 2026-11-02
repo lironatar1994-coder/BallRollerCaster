@@ -168,6 +168,8 @@
   <button id="ridePrev" data-i18n-title="Previous ball" title="Previous ball">◀</button>
   <span id="rideName">Ball</span>
   <button id="rideNext" data-i18n-title="Next ball · Tab" title="Next ball · Tab">▶</button>
+  <button id="rideNudgeL" class="nudge" data-i18n-title="Nudge the ball left" title="Nudge the ball left">⇠</button>
+  <button id="rideNudgeR" class="nudge" data-i18n-title="Nudge the ball right" title="Nudge the ball right">⇢</button>
   <button id="rideExit" class="exit" data-i18n>✕ Back to build</button>
 </div>
 
@@ -234,6 +236,14 @@
     <p class="sub" data-i18n>Photo Booth pieces snap every ball that rolls past. Click a photo to save it.</p>
     <div id="albumList"></div>
     <button data-act="close" class="ghost" data-i18n>Close</button>
+  </div>
+</div>
+<div id="podiumModal" class="modal hidden">
+  <div class="card-modal">
+    <h2>🏅 <span data-i18n>Marble Olympics</span></h2>
+    <div id="podium"></div>
+    <div id="podiumList"></div>
+    <button data-act="close" class="primary" data-i18n>Done</button>
   </div>
 </div>
 <div id="puzzleModal" class="modal hidden">

@@ -1060,8 +1060,8 @@ function ballMesh(type, color, r, look) {
   return m;
 }
 let colorIdx = 0;
-function spawnBall(pos, vel) {
-  const b = new Ball(S.ballType, pos, vel);
+function spawnBall(pos, vel, type = S.ballType) {
+  const b = new Ball(type, pos, vel);
   // every hidden star found: golden marbles from then on
   b.color = hidden.golden() ? '#f5c242' : BALL_COLORS[colorIdx++ % BALL_COLORS.length];
   b.look = S.look;
@@ -1189,6 +1189,7 @@ function onWorldEvent(type, a, b, c, d) {
     sticker('first-goal'); raceGoal(b);
     if (b.plinko) { C.plinkoPts += b.plinko; if (b.plinko === 5) C.plinko5 = true; }
     if (b.fromBox) C.boxGoal = true;
+    if (b.olympic) b.olympic.t = world.time - b.olympic.born;
     if (C.pressed) C.remoteGoals++;
     if (b.ch) C.goals.push({ ride: world.time - b.stats.born, pieceId: a.pieceId, loop: b.ch.loop, teddy: b.ch.teddy, tramp: b.ch.tramp, air: Math.max(b.ch.maxAir, b.ch.air), splash: b.ch.splash, gadgets: b.ch.gadgets.size });
   }
@@ -2398,7 +2399,7 @@ $('chkForces').onchange = (e) => { S.forces = e.target.checked; };
 $('chkTrail').onchange = (e) => { S.trails = e.target.checked; };
 $('chkKid').onchange = (e) => { S.kid = e.target.checked; world.assist = S.kid; store.set('bc.kid', S.kid); schedulePrediction(); toast(L(S.kid ? 'Kid mode on: slow balls get a gentle push' : 'Kid mode off: pure physics')); };
 function closeModals() { closeMenus(); for (const id of MODALS) $(id).classList.add('hidden'); }
-const MODALS = ['help', 'chModal', 'winModal', 'galleryModal', 'albumModal', 'roomsModal', 'sharedModal', 'settingsModal', 'puzzleModal'];
+const MODALS = ['help', 'chModal', 'winModal', 'galleryModal', 'albumModal', 'roomsModal', 'sharedModal', 'settingsModal', 'puzzleModal', 'podiumModal'];
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', (e) => { if (e.target === m) closeModals(); }));
 document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
   const a = b.dataset.act;
@@ -2726,7 +2727,7 @@ async function replayLooped() {
 }
 
 // ---------------------------------------------------------------- release modes and races
-const AUTO_MODES = [['off', '⏹ Off'], ['steady', '🔁 One every 2 s'], ['queue', '🌈 Rainbow queue (8 balls)'], ['mixed', '🎲 Mixed balls'], ['race', '🏁 Race the towers']];
+const AUTO_MODES = [['off', '⏹ Off'], ['steady', '🔁 One every 2 s'], ['queue', '🌈 Rainbow queue (8 balls)'], ['mixed', '🎲 Mixed balls'], ['race', '🏁 Race the towers'], ['olympics', '🏅 Marble Olympics (one of each)']];
 S.autoMode = 'off';
 $('btnAuto').onclick = () => openMenu($('autoMenu'), shown($('btnAuto')), m => {
   m.innerHTML = AUTO_MODES.map(([k, l]) => `<button data-auto="${k}" class="${S.autoMode === k ? 'on' : ''}">${L(l)}</button>`).join('');
@@ -2736,6 +2737,7 @@ function setAuto(mode) {
   sound.ensure();
   S.race = null;
   if (mode === 'race') { if (starts().length < 2) { toast(L('A race needs two Start Towers'), true); mode = 'off'; } else return startRace(); }
+  if (mode === 'olympics') return startOlympics();
   S.autoMode = mode; S.auto = mode !== 'off'; S.autoT = 0; S.autoLeft = 8;
   $('btnAuto').classList.toggle('on', S.auto);
   document.querySelector('[data-proxy="btnAuto"]').classList.toggle('on', S.auto);
@@ -2775,6 +2777,56 @@ function raceGoal(b) {
   C.race = { goals: R.goals.length, gap: R.goals.length > 1 ? R.goals[1] - R.goals[0] : null };
 }
 
+// ---------------------------------------------------------------- marble olympics
+// one marble of each material down the same coaster, one after another; their times go on a podium
+const OLYMPIANS = ['glass', 'wood', 'rubber', 'plastic', 'clay'];
+function startOlympics() {
+  if (!starts().length) { toast(L('First place a 📍 Start Tower'), true); sound.error(); return; }
+  S.autoMode = 'off'; S.auto = false; $('btnAuto').classList.remove('on');
+  clearBalls();
+  S.olympics = { runs: OLYMPIANS.map(type => ({ type, t: null, out: null, b: null, born: 0 })), next: 0, at: world.time - 1 };
+  toast(L('🏅 Marble Olympics! One of each, one after another'));
+}
+function olympicsTick() {
+  const O = S.olympics;
+  if (!O) return;
+  if (O.next < O.runs.length && world.time - O.at > 1.6) {
+    const r = O.runs[O.next++], st = starts()[0];
+    O.at = world.time;
+    if (!st) { S.olympics = null; return; }
+    r.b = spawnBall(st.spawn.clone(), undefined, r.type); r.b.olympic = r; r.born = world.time;
+    S.follow = r.b; sound.release();
+  }
+  for (const r of O.runs) {
+    if (!r.b || r.t !== null || r.out) continue;
+    if (!world.balls.includes(r.b) || r.b.dead || r.b.still > 1) r.out = 'fell'; // (still counts up only while resting on the room's floor)
+    else if (world.time - r.born > 40) r.out = 'stuck';
+  }
+  if (O.next >= O.runs.length && O.runs.every(r => r.t !== null || r.out)) { S.olympics = null; showPodium(O.runs); }
+}
+function showPodium(runs) {
+  const done = runs.filter(r => r.t !== null).sort((a, b) => a.t - b.t), dot = (r) => `<span class="balldot" style="background:${BALL_LOOK[r.type]}"></span>`;
+  const step = (r, place) => r ? `<div class="pod p${place}">${dot(r)}<b>${L(BALL_TYPES[r.type].name)}</b><small>${r.t.toFixed(2)} ${L('s')}</small><div class="block">${['🥇', '🥈', '🥉'][place - 1]}</div></div>` : `<div class="pod p${place} empty"><div class="block">${['🥇', '🥈', '🥉'][place - 1]}</div></div>`;
+  $('podium').innerHTML = step(done[1], 2) + step(done[0], 1) + step(done[2], 3);
+  $('podiumList').innerHTML = runs.filter(r => !done.slice(0, 3).includes(r)).map(r => `<div>${dot(r)} ${L(BALL_TYPES[r.type].name)} — ${r.t !== null ? r.t.toFixed(2) + ' ' + L('s') : L(r.out === 'fell' ? 'fell off' : 'got stuck')}</div>`).join('');
+  $('podiumModal').classList.remove('hidden');
+  if (done.length) { sound.fanfare(); sticker('olympics'); }
+}
+
+// ---------------------------------------------------------------- nudge: steer the ball you are riding
+// a little push sideways (as you see it), so a ball can be kept on the track — or knocked off it
+function nudge(dir) {
+  const b = S.follow;
+  if (!b || b.dead || b.collected || !world.balls.includes(b)) return;
+  const side = V().setFromMatrixColumn(camera.matrixWorld, 0).setY(0);
+  if (side.lengthSq() < 1e-6) return;
+  side.normalize().multiplyScalar(dir * 0.22);
+  b.vel.add(side); S.nudges = (S.nudges || 0) + 1;
+  sound.click(); feel.buzz(10);
+}
+$('rideNudgeL').onclick = () => nudge(-1);
+$('rideNudgeR').onclick = () => nudge(1);
+
 // ---------------------------------------------------------------- traffic jams
 let jamT = 0, jamLast = -99;
 function jamCheck(now) {
@@ -2796,7 +2848,7 @@ const STICKERS = [
   ['first-goal', '🎯', 'First goal'], ['loop', '🌀', 'Upside down'], ['splash', '💦', 'Splash!'], ['photo', '📸', 'Say cheese'],
   ['award', '🏆', 'Record breaker'], ['classic', '🏅', 'A Classic'], ['visitor', '👧', 'A friend came by'], ['five-star', '⭐', 'Four and a half stars'],
   ['rooms', '🏠', 'Room explorer'], ['daily', '📅', 'Daily puzzler'], ['builder', '🧱', '50 pieces placed'], ['gadgets', '⚙️', 'Gadget fan'],
-  ['stars', '🌟', 'Star hunter'], ['golden', '✨', 'Golden marbles'],
+  ['stars', '🌟', 'Star hunter'], ['golden', '✨', 'Golden marbles'], ['olympics', '🏅', 'Marble Olympics'],
 ];
 function sticker(id) {
   const got = store.get('bc.stickers', {});
@@ -3752,6 +3804,7 @@ function everyFrame(dt, adv, now) {
   ghostMats.bad.opacity = reduceMotion() ? 0.3 : 0.28 + 0.16 * Math.sin(now * 0.012);
   frameStatTick(dt, now);
   hidden.tick(dt, now);
+  olympicsTick();
   feel.finaleTick(now, dt);
   feel.energyTick();
   for (let i = snaps.length - 1; i >= 0; i--) {

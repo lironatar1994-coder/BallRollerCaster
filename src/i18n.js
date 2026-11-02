@@ -187,6 +187,8 @@ const HE = {
   'Magic Hat': 'כובע קסמים', 'In goes one marble… out comes another kind!': 'נכנסת גולה אחת… ויוצאת גולה מסוג אחר!', 'Floaty Hill': 'גבעת ריחוף', 'A hill shaped to the ball’s own flight: it floats over the top': 'גבעה בצורת המעוף של הכדור עצמו: הוא מרחף מעל הפסגה',
   'Hammer': 'פטיש', 'A ball that stops under it gets whacked up the ramp — light balls fly further': 'כדור שנעצר מתחתיו מקבל מכה במעלה הרמפה — כדורים קלים עפים רחוק יותר',
   'Tipping Bucket': 'דלי מתהפך', 'Fills up with marbles, then tips them all out at once': 'מתמלא בגולות ואז שופך את כולן בבת אחת', 'Counterweight': 'משקל נגד', 'Light': 'קל', 'Heavy': 'כבד',
+  '🏅 Marble Olympics (one of each)': '🏅 אולימפיאדת גולות (אחת מכל סוג)', 'Marble Olympics': 'אולימפיאדת גולות', '🏅 Marble Olympics! One of each, one after another': '🏅 אולימפיאדת גולות! אחת מכל סוג, בזו אחר זו',
+  'fell off': 'נפלה', 'got stuck': 'נתקעה', 'Nudge the ball left': 'דחיפה קטנה שמאלה', 'Nudge the ball right': 'דחיפה קטנה ימינה',
   'Paths': 'מסילות', 'Tricks': 'תעלולים', 'Switches': 'מפצלים', 'Lifts': 'מעליות', 'Goals': 'שערים', 'Music & room': 'מוזיקה וחדר',
   'Settings': 'הגדרות', 'Done': 'סיום', 'Building helpers': 'עזרים לבנייה', 'Room and screen': 'חדר ומסך', 'Build pad by the ring': 'לוח בנייה ליד הטבעת',
   'Lite mode (smoother on slow phones)': 'מצב קל (חלק יותר בטלפונים איטיים)', 'Show frame time': 'הצגת זמן פריים', 'Running slowly? Tap here for Lite mode': 'רץ לאט? הקישו כאן למצב קל',
