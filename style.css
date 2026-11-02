@@ -372,10 +372,23 @@ body.photo #news, body.replaying #news { display: none; }
 body.photo #bubbles, body.replaying #bubbles { display: none; }
 
 /* ---------------------------------------------------------------- build arrows, handles, multi-select */
-#buildPad { position: fixed; z-index: 5; display: flex; gap: 3px; background: rgba(255, 255, 255, 0.92); border-radius: 999px; padding: 3px; box-shadow: var(--shadow); }
-#buildPad button { width: 28px; height: 28px; border-radius: 50%; font-size: 15px; font-weight: 600; color: var(--ink); display: grid; place-items: center; }
+/* the build pad: a row of turns, a row of slopes, a row of tilts, all on one 7-column grid */
+#buildPad { position: fixed; z-index: 5; display: flex; flex-direction: column; gap: 2px; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(6px); border-radius: 14px; padding: 4px; box-shadow: var(--shadow); --padB: 30px; }
+#buildPad .padRow { display: grid; grid-template-columns: repeat(7, var(--padB)); gap: 2px; }
+#buildPad .padRow + .padRow { border-top: 1px solid rgba(0, 0, 0, 0.06); padding-top: 2px; }
+#buildPad button { position: relative; height: var(--padB); border-radius: 9px; font-size: 15px; font-weight: 600; color: var(--ink); display: grid; place-items: center; }
 #buildPad button:hover { background: var(--on); }
-#buildPad button.magic { background: linear-gradient(135deg, #b48bff, #ff8fb0); color: #fff; }
+#buildPad button.on, #buildPad button.on:hover { background: var(--ink); color: #fff; }
+#buildPad button.magic { grid-column: 7; background: linear-gradient(135deg, #b48bff, #ff8fb0); color: #fff; }
+#buildPad [data-b="back"] { color: var(--muted); }
+/* what the silent test ball found: a green, yellow or red dot on each turn */
+#buildPad button::after { content: ''; position: absolute; right: 2px; bottom: 2px; width: 7px; height: 7px; border-radius: 50%; display: none; box-shadow: 0 0 0 1.5px #fff; }
+#buildPad button.ok::after { display: block; background: #2fbf71; }
+#buildPad button.slow::after { display: block; background: #ffb020; }
+#buildPad button.off::after { display: block; background: #ff4d4d; }
+#buildPad button.off { color: #c83a3a; }
+#buildPad button.bad { opacity: 0.28; }
+#buildPad button.wait { opacity: 0.7; }
 #multiBar { position: fixed; left: 50%; bottom: 168px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 4px; background: var(--panel-solid); border-radius: 999px; padding: 5px 8px; box-shadow: var(--shadow); font-size: 13px; }
 #multiBar b { padding: 0 8px; }
 #multiBar button { padding: 5px 10px; border-radius: 999px; background: #f4f1ff; font-weight: 500; }
@@ -455,7 +468,7 @@ body.side-open #heightBar { right: 326px; }
 canvas#c { touch-action: none; }
 @media (pointer: coarse) {
   .grp > button { padding: 9px 11px; }
-  #buildPad button { width: 36px; height: 36px; font-size: 18px; }
+  #buildPad { --padB: 36px; }
   #camPad button { width: 44px; height: 40px; }
   .chip { padding: 5px 12px; }
 }
@@ -529,7 +542,6 @@ body.dock-folded #dockMain { padding: 5px 8px; }
   #multiBar { bottom: calc(var(--dockH, 120px) + 12px); max-width: calc(100vw - 12px); overflow-x: auto; }
   #heightBar { display: none; }
   #ringTag { font-size: 11px; padding: 2px 7px; }
-  #buildPad button { width: 30px; height: 30px; font-size: 15px; }
   .bubble { font-size: 12.5px; max-width: 200px; padding: 5px 10px; }
   #sideToggle { display: none !important; }
   #side { top: calc(var(--topH, 90px) + 6px); right: 4px; left: 4px; width: auto; bottom: calc(var(--dockH, 120px) + 10px); }
@@ -621,3 +633,7 @@ body.sel-sheet #dockMain, body.sel-sheet #settings { display: none !important; }
 /* a phone on its side: a panel on the right instead */
 #selPop.aside { left: auto; right: 4px; top: calc(var(--topH, 50px) + 6px); bottom: calc(var(--dockH, 100px) + 8px); transform: none; width: 290px; min-width: 0; max-width: 46vw; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px; gap: 4px; }
 body.sel-aside #camPad, body.sel-aside #predPill { display: none; }
+/* a phone keeps the build pad just above the dock, clear of the camera buttons */
+body.phone #buildPad { left: 6px; top: auto; bottom: calc(var(--dockH, 120px) + 10px); width: min(330px, calc(100vw - 64px)); }
+body.phone #buildPad .padRow { grid-template-columns: repeat(7, 1fr); }
+body.phone #buildPad button { height: 36px; }

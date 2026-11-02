@@ -919,10 +919,12 @@ export const PIECES = {
     },
   },
   curve: {
-    label: 'Curve', kind: 'append', defaults: { angle: 90, radius: 0.12, dir: 1 },
+    label: 'Curve', kind: 'append', defaults: { angle: 90, radius: 0.12, dir: 1, bank: 0 },
     build(d, B, P) {
       const ang = d.opts.angle * PI / 180, R = d.opts.radius, dir = d.opts.dir, L = ang * R, ph1 = d.slope;
-      const s = turtle(P.p, L, x => ({ psi: P.psi + dir * ang * x / L, phi: lerpE(P.phi, ph1, x / L) }));
+      // banked towards the inside of the turn, easing in and out so both ends stay level
+      const bank = (d.opts.bank || 0) * PI / 180, Le = Math.min(0.05, L * 0.3);
+      const s = turtle(P.p, L, x => ({ psi: P.psi + dir * ang * x / L, phi: lerpE(P.phi, ph1, x / L), bank: -dir * bank * Math.min(ease(x / Le), ease((L - x) / Le)) }));
       B.paths.push({ samples: s, profile: d.style });
       B.outs.push(endPort(s, P.psi + dir * ang, ph1));
     },

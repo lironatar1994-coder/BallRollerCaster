@@ -12,7 +12,7 @@ import { createInsight, starText } from './insight.js';
 import { shareLink, linkCode, decodeCoaster, gallery, thumbnail, VideoRecorder } from './share.js';
 import { finishIt, fixIt, simulate as simRun } from './autobuild.js';
 import { createVisitors } from './visitors.js';
-import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, COLORS, RAINBOW, SwitchDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
+import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
 import { Sound, ROLL_FAMILY } from './audio.js';
 import { ICONS } from './icons.js';
 import * as TX from './textures.js';
@@ -140,7 +140,7 @@ const cm = (v) => `${Math.round(v * 100)} ${L('cm')}`;
 const OPTIONS = {
   straight: [['len', 'Length', [[0.1, cm], [0.2, cm], [0.3, cm], [0.5, cm]]]],
   tunnel: [['len', 'Length', [[0.15, cm], [0.25, cm], [0.4, cm]]]],
-  curve: [['dir', 'Turn', [[1, '↰ Left'], [-1, '↱ Right']]], ['angle', 'Angle', [[45, '45°'], [90, '90°'], [180, '180°']]], ['radius', 'Radius', [[0.08, 'Tight'], [0.12, 'Medium'], [0.2, 'Wide']]]],
+  curve: [['dir', 'Turn', [[1, '↰ Left'], [-1, '↱ Right']]], ['angle', 'Angle', [[45, '45°'], [90, '90°'], [180, '180°']]], ['radius', 'Radius', [[0.08, 'Tight'], [0.12, 'Medium'], [0.2, 'Wide']]], ['bank', 'Bank', [[0, 'Flat'], [15, '15°'], [30, '30°']]]],
   helix: [['dir', 'Turn', [[1, '↰ Left'], [-1, '↱ Right']]], ['turns', 'Turns', [[1, '1'], [2, '2'], [3, '3']]], ['radius', 'Size', [[0.09, 'S'], [0.11, 'M'], [0.15, 'L']]]],
   loop: [['radius', 'Size', [[0.07, 'S'], [0.08, 'M'], [0.11, 'L']]]],
   drop: [['height', 'Drop', [[0.1, cm], [0.2, cm], [0.3, cm], [0.5, cm]]]],
@@ -399,10 +399,25 @@ function ghostify(inst, bad) {
   ghostInsts.push(inst);
 }
 function resolveColor() { return S.color === 'rainbow' ? RAINBOW[S.rainbow % RAINBOW.length] : S.color; }
-function makeData(toolKey, extra = {}) {
+function makeData(toolKey, extra = {}, over = null) {
   const tool = TOOLS[toolKey], type = tool.piece;
-  const opts = Object.assign({}, PIECES[type].defaults, S.opts[type], tool.opts || {});
-  return Object.assign({ id: S.nextId, type, slope: +S.slope.toFixed(5), style: S.style, color: resolveColor(), opts }, extra);
+  const opts = Object.assign({}, PIECES[type].defaults, S.opts[type], tool.opts || {}, over || {});
+  const d = Object.assign({ id: S.nextId, type, slope: +S.slope.toFixed(5), style: S.style, color: resolveColor(), opts }, extra);
+  if (type === 'curve' && !(over && 'bank' in over) && d.port) opts.bank = S.bank === 'auto' ? idealBank(d) ?? 15 : S.bank;
+  return d;
+}
+// ---------------------------------------------------------------- banked curves
+// A turn tilted towards its middle lets a fast ball go round without climbing the outer wall.
+// The perfect tilt for speed v round radius r: tan θ = v² / (g·r)
+S.bank = store.get('bc.bank', 'auto');
+const BANKS = [[0, 'Flat'], [15, 'A little'], [30, 'A lot'], ['auto', 'Auto']];
+function idealBank(d) {
+  const P = d.port, v0 = predSpeedAt(V(P.x, P.y, P.z));
+  if (v0 == null) return null;
+  // the ball speeds up (or slows) on the way to the middle of the turn
+  const L = d.opts.angle * DEG * d.opts.radius, drop = L / 2 * Math.sin(((P.phi || 0) + d.slope) / 2);
+  const v2 = Math.max(0, v0 * v0 + 2 / (1 + BALL_TYPES[S.ballType].k) * world.g * drop);
+  return Math.round(THREE.MathUtils.clamp(Math.atan(v2 / (world.g * d.opts.radius)) / DEG, 0, 40));
 }
 function showGhost(d) {
   clearGhost();
@@ -789,7 +804,14 @@ function renderSelPop() {
   for (const [key, label, vals] of OPTIONS[d.type] || []) {
     // the height of a free-standing piece can always change: everything attached moves with it
     const free = place && key === 'height' && !d.locked;
-    row(label, c => chips(c, vals.map(([v, l]) => [v, optLabel(v, l)]), v => v === d.opts[key], v => {
+    let list = vals.map(([v, l]) => [v, optLabel(v, l)]);
+    if (key === 'bank') {
+      // the perfect tilt for how fast the ball comes in
+      const ib = idealBank(d), same = list.find(x => x[0] === ib);
+      if (same) same[1] = '✨ ' + same[1];
+      else if (ib != null) list.push([ib, `✨ ${L('Auto')} ${ib}°`]);
+    }
+    row(label, c => chips(c, list, v => v === d.opts[key], v => {
       S.opts[d.type][key] = v; // remember it for the next one too
       if (free) setPlaceHeight(d.id, v);
       else tweakSelected({ geom: true, apply: nd => { nd.opts[key] = v; } });
@@ -1940,7 +1962,7 @@ function renderAll() {
   applyStatic();
   document.documentElement.lang = getLang();
   document.body.dir = getLang() === 'he' ? 'rtl' : 'ltr';
-  renderTop(); renderLab(); renderDock(); renderSettings(); renderSelPop(); renderMission();
+  renderTop(); renderLab(); renderDock(); renderSettings(); renderSelPop(); renderMission(); renderPad();
   predHTML = ''; renderPred();
 }
 
@@ -2640,25 +2662,144 @@ function positionBuildPad() {
   const show = S.arrows && padOpen() && I && S.cam === 'orbit' && !S.photo && !S.replay && !S.move && markerGroup.visible && TOOLS[S.tool].type !== 'place' && !S.multi.size && !hdrag && !S.selected;
   el.classList.toggle('hidden', !show);
   if (!show) return;
+  padCheckTick(); updatePad();
+  if (phone()) { el.style.left = el.style.top = el.style.visibility = ''; return; } // a phone keeps it just above the dock
   _v.copy(I.p).project(camera);
   const r = canvas.getBoundingClientRect();
   // to the right of the ring, or to its left when there is no room
-  const sx = r.left + (_v.x + 1) / 2 * r.width, w = el.offsetWidth || 230;
+  const sx = r.left + (_v.x + 1) / 2 * r.width, w = el.offsetWidth || 230, h = el.offsetHeight || 100;
   el.style.left = (sx + 36 + w < window.innerWidth - 6 ? sx + 36 : Math.max(6, sx - 36 - w)) + 'px';
-  el.style.top = (r.top + (1 - _v.y) / 2 * r.height - 16) + 'px';
+  el.style.top = THREE.MathUtils.clamp(r.top + (1 - _v.y) / 2 * r.height - h / 2, 70, window.innerHeight - h - 160) + 'px';
   el.style.visibility = _v.z > 1 ? 'hidden' : 'visible';
 }
+// Like a coaster park's construction window: one row for the turn, one for the slope, one for the
+// tilt of the next piece. Before you tap, every turn is tried with a silent ball, so each arrow
+// already shows what will happen: green gets through, yellow only just, red flies out or stops.
+const PAD_MOVES = [
+  ['Lt', 'curveL', { angle: 90, radius: 0.08 }, 'Sharp left'], ['Lm', 'curveL', { angle: 90, radius: 0.12 }, 'Left'], ['Lw', 'curveL', { angle: 90, radius: 0.2 }, 'Wide left'],
+  ['S', 'straight', null, 'Straight'],
+  ['Rw', 'curveR', { angle: 90, radius: 0.2 }, 'Wide right'], ['Rm', 'curveR', { angle: 90, radius: 0.12 }, 'Right'], ['Rt', 'curveR', { angle: 90, radius: 0.08 }, 'Sharp right'],
+];
+const padSvg = (inner) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+function turnIcon(dir, r) {
+  if (!dir) return padSvg('<path d="M12 21V4M7.5 8.5L12 4l4.5 4.5"/>');
+  const x0 = 12 - dir * r / 2, ex = x0 + dir * r;
+  return padSvg(`<path d="M${x0} 21V${5 + r}A${r} ${r} 0 0 ${dir > 0 ? 1 : 0} ${ex} 5"/><path d="M${ex - dir * 4} 1.5L${ex} 5L${ex - dir * 4} 8.5"/>`);
+}
+// slopes drawn steeper than they are, so they read at a glance
+function slopeIcon(deg) {
+  const a = { '-6': -14, 0: 0, 3: 8, 7: 18, 14: 32, 30: 55 }[deg] * DEG, c = Math.cos(a) * 8, s = Math.sin(a) * 8;
+  return padSvg(`<path d="M${12 - c} ${14 - s}L${12 + c} ${14 + s}"/><circle cx="${12 - c * 0.6 + 3.3 * Math.sin(a)}" cy="${14 - s * 0.6 - 3.3 * Math.cos(a)}" r="2.6" fill="currentColor" stroke="none"/>`);
+}
+function bankIcon(v) {
+  const a = { 0: 0, 15: 18, 30: 34, auto: 24 }[v];
+  return padSvg(`<g transform="rotate(${-a} 12 13)"><path d="M6 6v6a6 6 0 0 0 12 0V6"/><circle cx="12" cy="15" r="2.4" fill="currentColor" stroke="none"/></g>${v === 'auto' ? '<text x="16" y="23.5" font-size="9" font-weight="800" fill="currentColor" stroke="none">A</text>' : ''}`);
+}
+function renderPad() {
+  const b = (attrs, title, html, cls = '') => `<button ${attrs} class="${cls}" title="${esc(title)}">${html}</button>`;
+  $('buildPad').innerHTML =
+    `<div class="padRow">${PAD_MOVES.map(([k, , o, t]) => b(`data-b="${k}"`, L(t), turnIcon(k === 'S' ? 0 : k[0] === 'L' ? -1 : 1, { t: 4, m: 7, w: 10 }[k[1]]))).join('')}</div>` +
+    `<div class="padRow">${SLOPES.map(([v, l]) => b(`data-slope="${v}"`, `${L('Slope')}: ${L(l)}`, slopeIcon(v))).join('')}${b('data-b="back"', L('Remove the last piece'), '⌫')}</div>` +
+    `<div class="padRow">${BANKS.map(([v, l]) => b(`data-bank="${v}"`, `${L('Bank the turns')}: ${L(l)}`, bankIcon(v))).join('')}${b('data-b="finish"', L('Finish it: build a way into a goal'), '✨', 'magic')}</div>`;
+  padShown = '';
+}
+let padShown = '';
+function updatePad() {
+  const st = `${S.slope}|${S.bank}|${padCheck.ver}|${getLang()}`;
+  if (st === padShown) return;
+  padShown = st;
+  const el = $('buildPad');
+  for (const x of el.querySelectorAll('[data-slope]')) x.classList.toggle('on', Math.abs(+x.dataset.slope * DEG - S.slope) < 1e-6);
+  for (const x of el.querySelectorAll('[data-bank]')) x.classList.toggle('on', String(S.bank) === x.dataset.bank);
+  for (const [k, , , t] of PAD_MOVES) {
+    const x = el.querySelector(`[data-b="${k}"]`), r = padCheck.res[k];
+    x.className = r ? r.cls : 'wait';
+    x.title = L(t) + (r && r.text ? ' — ' + r.text : '');
+  }
+}
+// ---------------------------------------------------------------- trying each move before you tap it
+const padCheck = { key: '', queue: [], res: {}, ver: 0 };
+function padData(k, ap) {
+  const [, tool, o] = PAD_MOVES.find(m => m[0] === k);
+  return makeData(tool, { port: portToData(ap.port) }, o);
+}
+function padCheckTick() {
+  const ap = activePort();
+  if (!ap) return;
+  const v = predSpeedAt(ap.port.p), q = ap.port.p;
+  const key = [ap.key, q.x.toFixed(4), q.y.toFixed(4), q.z.toFixed(4), S.slope.toFixed(4), S.bank, hIdx, pieces.length, S.ballType, world.g, getLang(), v == null ? '-' : Math.round(v * 20)].join('|');
+  if (key !== padCheck.key) { padCheck.key = key; padCheck.queue = PAD_MOVES.map(m => m[0]); padCheck.res = {}; padCheck.ver++; }
+  const k = padCheck.queue.shift(); // one move per frame keeps the frame rate smooth
+  if (!k) return;
+  const d = padData(k, ap), inst = buildPiece(d);
+  const reason = validatePiece(inst, [...insts.values()], room.colliders);
+  padCheck.res[k] = reason ? { cls: 'bad', text: L(reason) } : v == null ? { cls: '', text: '' } : rollTest(inst, ap.port, v);
+  disposeGroup(inst.group);
+  padCheck.ver++;
+}
+// a silent ball enters the new piece at the predicted speed, already rolling
+function rollTest(inst, port, v) {
+  const w = new World({ silent: true });
+  w.g = world.g; w.rho = world.rho; w.assist = world.assist;
+  w.setColliders(world.colliders.concat(inst.colliders), world.devices.concat(inst.devices));
+  w.water = world.water.concat(inst.B.water || []);
+  const T = dirOf(port.psi, port.phi), U = V(Math.cos(port.psi) * Math.sin(port.phi), Math.cos(port.phi), -Math.sin(port.psi) * Math.sin(port.phi));
+  const b = w.addBall(new Ball(S.ballType, port.p.clone().addScaledVector(U, -(RC - BALL_TYPES[S.ballType].radius)), T.clone().multiplyScalar(Math.max(v, 0.02))));
+  b.w.crossVectors(U, b.vel).divideScalar(b.r);
+  const end = inst.outs[0] && inst.outs[0].p, start = b.pos.clone();
+  if (!end) return { cls: '', text: '' };
+  let still = 0;
+  for (let k = 0; k < 2500; k++) {
+    if ((k & 15) === 0) w.refreshCandidates(b, 0.02);
+    w.step(DT);
+    if (b.pos.distanceToSquared(end) < 0.025 * 0.025) {
+      const ve = b.vel.length();
+      return ve < 0.12 ? { cls: 'slow', text: L('the ball only just makes it ({0} m/s)', ve.toFixed(2)) } : { cls: 'ok', text: L('the ball gets through at {0} m/s', ve.toFixed(2)) };
+    }
+    if (b.dead || (k > 40 && w.time - b.lastTrackT > 0.15)) return { cls: 'off', text: L('too fast: the ball flies out. Bank the turn or take a wider one') };
+    still = b.vel.length() < 0.01 ? still + DT : 0;
+    if (still > 0.3 || b.pos.clone().sub(start).dot(T) < -0.015) return { cls: 'off', text: L('the ball stops here') };
+  }
+  return { cls: 'off', text: L('the ball stops here') };
+}
 $('buildPad').onclick = (e) => {
-  const b = e.target.closest('[data-b]');
+  const b = e.target.closest('button');
   if (!b) return;
   sound.ensure();
+  if (b.dataset.slope !== undefined) { S.slope = +b.dataset.slope * DEG; renderSettings(); sound.click(); return; }
+  if (b.dataset.bank !== undefined) { S.bank = b.dataset.bank === 'auto' ? 'auto' : +b.dataset.bank; store.set('bc.bank', S.bank); sound.click(); return; }
   const k = b.dataset.b;
-  if (k === 'steeper') stepSlope(1);
-  else if (k === 'flatter') stepSlope(-1);
-  else if (k === 'back') { const ap = activePort(), d = ap && pieces.find(p => p.id === ap.id); if (d && !d.locked) deletePiece(d.id); }
+  if (k === 'back') { const ap = activePort(), d = ap && pieces.find(p => p.id === ap.id); if (d && !d.locked) deletePiece(d.id); }
   else if (k === 'finish') runFinishIt();
-  else tryAppend(k);
+  else padBuild(k);
 };
+function padBuild(k) {
+  const ap = activePort();
+  if (!ap) { toast(L('First place a 📍 Start Tower'), true); sound.error(); return; }
+  const [, tool] = PAD_MOVES.find(m => m[0] === k);
+  if (!canUse(tool)) { toast(L('None of those left in the parts box'), true); sound.error(); return; }
+  const d = padData(k, ap), inst = buildPiece(d);
+  const reason = validatePiece(inst, [...insts.values()], room.colliders);
+  disposeGroup(inst.group);
+  if (reason) { toast(L(reason), true); sound.error(); showBump(false); return; }
+  S.lastAppend = tool;
+  clearGhost();
+  commit(d);
+}
+// hovering an arrow shows the piece where it would go, and what the ball would do
+let padHov = null;
+$('buildPad').addEventListener('pointerover', (e) => {
+  if (e.pointerType === 'touch') return;
+  const b = e.target.closest('[data-b]'), k = b && PAD_MOVES.some(m => m[0] === b.dataset.b) ? b.dataset.b : null;
+  if (k === padHov) return;
+  padHov = k;
+  const ap = activePort();
+  if (!k || !ap) { clearGhost(); setHint(''); return; }
+  showGhost(padData(k, ap));
+  const r = padCheck.res[k], t = PAD_MOVES.find(m => m[0] === k)[3];
+  setHint(!S.ghostValid ? '⚠ ' + S.ghostReason : `${L(t)}${r && r.text ? ' — ' + r.text : ''}`);
+});
+$('buildPad').addEventListener('pointerleave', () => { padHov = null; clearGhost(); setHint(''); });
 
 // ---------------------------------------------------------------- walking along the track
 function stepSelection(dir) {
@@ -3377,7 +3518,7 @@ const TOUR = [
   { text: 'Press ▶ Release to send a ball down the coaster.', at: '#btnRelease', wait: () => world.balls.length > 0 },
   { text: 'This pill shows where the ball ends up. The 🔮 line in the room shows its path — a red ring marks a fall.', at: '#predPill' },
   { text: 'The glowing ring is where the next piece goes. Hover a piece below to preview it, click to add it.', at: '#dockPieces', wait: () => tourAdded },
-  { text: 'The little arrows next to the ring build fast. ✨ finishes the run into a goal for you!', at: '#buildPad' },
+  { text: 'The build pad next to the ring: pick a turn, a slope and a tilt. A green dot means the ball makes it. ✨ finishes the run into a goal for you!', at: '#buildPad' },
   { text: 'Click any piece to change it — everything after it moves along. Drag the orange handle to stretch it.' },
   { text: 'Ride inside the ball with 🎢, and try the 🏆 Room tour missions.', at: '#camModes' },
   { text: 'Friends will drop by to try your coaster and tell you what they think. Have fun!' },

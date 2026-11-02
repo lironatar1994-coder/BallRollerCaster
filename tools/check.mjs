@@ -75,6 +75,11 @@ const tracks = {
     ['start', { port: { x: -0.6, y: 0.0084, z: 0.5, psi: 0, phi: 0 }, opts: { height: 0.3 } }], ['straight'], ['elevator', { opts: { height: 0.3 } }],
     ['sensor', { opts: { effect: 'gate' } }], ['gate', { opts: { mode: 'sensor' } }], ['straight', { opts: { len: 0.3 } }], ['cup'],
   ]), 0],
+  // unbanked, the bouncy rubber ball flies out of this turn
+  'a fast, banked hairpin on rails': [chain([
+    ['start', { port: { x: -0.5, y: 0.0084, z: 0.5, psi: 0, phi: 0 }, opts: { height: 0.75 } }], ['straight', { slope: 30, opts: { len: 0.5 } }],
+    ['curve', { style: 'rails', opts: { angle: 180, radius: 0.08, dir: -1, bank: 25 } }], ['straight', { style: 'rails', opts: { len: 0.2 } }], ['cup'],
+  ]), 0],
 };
 const started = Date.now();
 for (const [name, [list, branch]] of Object.entries(tracks)) {
