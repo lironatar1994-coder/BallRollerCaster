@@ -578,3 +578,46 @@ body.photo #vignette { background: radial-gradient(ellipse 75% 70% at 50% 46%, t
 #toast.bad button { background: #b3261e; }
 #selPop .row .swatch.pick { width: 24px; height: 24px; }
 #selPop .row .chip.pick { display: flex; align-items: center; gap: 4px; }
+
+/* ---------------------------------------------------------------- phones: one slim top row */
+.phoneRow { display: none; }
+body.phone .phoneRow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid #eee; }
+body.phone .phoneRow button { flex-direction: column; gap: 2px; padding: 7px 2px; font-size: 12px; text-align: center; background: #f6f4fb; }
+body.phone .phoneRow button i { font-style: normal; font-size: 17px; }
+body.phone #moreMenu .phoneRow button.on { background: var(--on); }
+body.phone #camModes button:not(.on) { display: none; }
+body.phone #camModes button span { display: none; }
+body.phone #camModes button.on::after { content: '▾'; font-size: 10px; opacity: 0.55; margin-inline-start: -3px; }
+body.phone #btnAuto, body.phone #btnSpeed, body.phone #btnReplay, body.phone #btnClear, body.phone #btnHist { display: none !important; }
+body.phone #camIn, body.phone #camOut { display: none; }
+@media (max-width: 760px) {
+  #top { flex-wrap: nowrap; }
+  #camModes, #playGrp, #rightGrp { order: 0; }
+  #playGrp { width: auto; justify-content: flex-start; padding: 2px; }
+}
+/* riding on a phone: one slim bar under the top row */
+body.phone #rideBar { top: calc(var(--topH, 50px) + 8px); white-space: nowrap; max-width: calc(100vw - 12px); font-size: 13px; }
+body.phone #rideBar button { padding: 5px 9px; }
+body.phone #rideName { min-width: 0; max-width: 38vw; overflow: hidden; text-overflow: ellipsis; padding: 0 2px; }
+body.phone.riding #predPill { display: none; }
+@media (max-width: 380px) {
+  #btnRelease span { display: none; }
+  .grp > button { padding: 6px 7px; }
+}
+
+/* ---------------------------------------------------------------- phones: the piece editor is a sheet in place of the dock */
+#dock > #selPop.sheet { position: relative; left: auto; top: auto; transform: none; width: auto; min-width: 0; max-width: none; max-height: min(48vh, 340px); overflow-y: auto; overscroll-behavior: contain; border-radius: 16px; padding: 6px 10px 8px; gap: 5px; box-shadow: var(--shadow); font-size: 13px; }
+#selPop.sheet::after, #selPop.aside::after { display: none; }
+body.sel-sheet #dockMain, body.sel-sheet #settings { display: none !important; }
+#selPop.sheet .row { flex-wrap: nowrap; gap: 4px; }
+#selPop.sheet .row > .lbl { flex: 0 0 auto; min-width: 46px; font-size: 10px; letter-spacing: 0.4px; }
+#selPop.sheet .row > .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 1px; gap: 4px; }
+#selPop.sheet .row > .chips::-webkit-scrollbar { display: none; }
+#selPop.sheet .chip { white-space: nowrap; padding: 4px 9px; font-size: 12.5px; }
+#selPop.sheet .hd .walk, #selPop.sheet .hd .x, #selPop.aside .hd .walk, #selPop.aside .hd .x { width: 32px; height: 32px; font-size: 14px; }
+#selPop.sheet .hd > span, #selPop.aside .hd > span { flex: 1; min-width: 0; }
+#selPop.sheet .hd .x, #selPop.aside .hd .x { margin: 0; }
+#selPop.sheet .ft button, #selPop.aside .ft button { padding: 8px 6px; }
+/* a phone on its side: a panel on the right instead */
+#selPop.aside { left: auto; right: 4px; top: calc(var(--topH, 50px) + 6px); bottom: calc(var(--dockH, 100px) + 8px); transform: none; width: 290px; min-width: 0; max-width: 46vw; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px; gap: 4px; }
+body.sel-aside #camPad, body.sel-aside #predPill { display: none; }

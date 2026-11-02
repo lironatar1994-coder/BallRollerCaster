@@ -29,7 +29,7 @@
 <!-- top: camera + play -->
 <header id="top">
   <div class="logo"><span class="b1">Ball</span><span class="b2">Coaster</span></div>
-  <div class="grp seg" id="camModes">
+  <div class="grp seg" id="camModes" data-menu>
     <button data-cam="orbit" class="on" data-i18n-title="Build view · 1" title="Build view · 1"><i>🛠️</i><span data-i18n>Build</span></button>
     <button data-cam="chase" data-i18n-title="Chase a ball · 2" title="Chase a ball · 2"><i>🎥</i><span data-i18n>Chase</span></button>
     <button data-cam="pov" data-i18n-title="Ride inside a ball · 3" title="Ride inside a ball · 3"><i>🎢</i><span data-i18n>Ride</span></button>
@@ -60,6 +60,12 @@
 <div id="ballMenu" class="menu hidden"></div>
 <div id="popMenu" class="menu hidden"></div>
 <div id="moreMenu" class="menu hidden">
+  <div class="phoneRow">
+    <button data-proxy="btnAuto" data-menu><i>🔁</i><span data-i18n>Auto</span></button>
+    <button data-proxy="btnSpeed" data-menu><i>⏱</i><span data-i18n>Speed</span></button>
+    <button data-proxy="btnReplay"><i>⏪</i><span data-i18n>Replay</span></button>
+    <button data-proxy="btnClear"><i>✖</i><span data-i18n>Clear</span></button>
+  </div>
   <button id="btnPredict" class="on"><i>🔮</i><span data-i18n>Prediction line</span><b class="tick"></b></button>
   <button id="btnNight"><i>☀️</i><span data-i18n>Night light</span><b class="tick"></b><kbd>N</kbd></button>
   <button id="btnMusic"><i>🎵</i><span data-i18n>Music</span><b class="tick"></b></button>
@@ -78,6 +84,7 @@
   <button id="btnShare"><i>🔗</i><span data-i18n>Copy share link</span></button>
   <button id="btnVisit"><i>🚪</i><span data-i18n>Invite a friend now</span></button>
   <button id="btnPhoto"><i>📷</i><span data-i18n>Photo mode</span><kbd>K</kbd></button>
+  <button id="btnFull"><i>⛶</i><span data-i18n>Full screen</span><b class="tick"></b></button>
   <button id="btnLang"><i>🌐</i><span id="langLabel">עברית</span></button>
   <button id="btnTour"><i>🧭</i><span data-i18n>Show me around</span></button>
   <button id="btnHelp"><i>❔</i><span data-i18n>How to play</span><kbd>H</kbd></button>

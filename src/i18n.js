@@ -150,6 +150,7 @@ const HE = {
   'Drag a box around pieces · Shift adds more': 'גוררים מלבן סביב חלקים · Shift מוסיף עוד',
   'None of those left in the parts box': 'לא נשארו כאלה בקופסת החלקים', 'Previous piece': 'החלק הקודם', 'Next piece': 'החלק הבא',
   'Tip: drag the orange handle · Shift = slope · right-click for more': 'טיפ: גוררים את הידית הכתומה · Shift = שיפוע · קליק ימני לעוד',
+  'Tip: drag the orange handle · hold a piece for more': 'טיפ: גוררים את הידית הכתומה · לחיצה ארוכה על חלק לעוד', 'Full screen': 'מסך מלא',
   'Mirror': 'שיקוף', 'Save as part': 'לשמור כחלק', 'Copy to the ring': 'להעתיק לטבעת', 'Delete': 'מחיקה', 'Mirrored 🪞': 'שוקף 🪞',
   'Drop it at the glowing ring': 'מניחים אותו בטבעת הזוהרת', 'Select pieces (or right-click one) and choose ⭐ Save as part': 'בוחרים חלקים (או קליק ימני על אחד) ואז ⭐ לשמור כחלק',
   'Pick pieces that come after a Start Tower': 'בוחרים חלקים שבאים אחרי מגדל ההתחלה', 'Name this part:': 'שם לחלק הזה:', 'My part {0}': 'החלק שלי {0}', 'My part': 'החלק שלי',

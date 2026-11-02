@@ -750,6 +750,7 @@ function select(id) {
   if (S.selected) store.set('bc.handleTip', store.get('bc.handleTip', 0) + 1);
   renderSelPop();
   refreshHandles();
+  if (S.selected && selMode()) requestAnimationFrame(keepInView);
 }
 function setHighlight(group, on, color = '#ff9a3c', k = 0.35) {
   const glowMat = (m) => { const c = m.clone(); if (c.emissive) { c.emissive = new THREE.Color(color); c.emissiveIntensity = k; } return c; };
@@ -769,8 +770,9 @@ function setHighlight(group, on, color = '#ff9a3c', k = 0.35) {
 function renderSelPop() {
   const el = $('selPop');
   const d = S.selected && pieces.find(p => p.id === S.selected);
-  if (!d || S.cam !== 'orbit' || S.hover || S.photo || S.move || S.replay) { el.classList.add('hidden'); return; }
+  if (!d || S.cam !== 'orbit' || S.hover || S.photo || S.move || S.replay) { el.classList.add('hidden'); document.body.classList.remove('sel-sheet', 'sel-aside'); return; }
   el.classList.remove('hidden');
+  placeSelPop(el);
   el.innerHTML = '';
   const place = PIECES[d.type].kind === 'place';
   const locked = !!d.locked;
@@ -820,7 +822,7 @@ function renderSelPop() {
       const cc = document.createElement('div'); cc.className = 'chips pal';
       chips(cc, Object.keys(COLORS).map(k => [k, '', `background:${COLORS[k]}`]), v => v === d.color, v => { closeMenus(); tweakSelected({ geom: false, apply: nd => { nd.color = v; } }); }, 'swatch');
       menu.appendChild(cc);
-    });
+    }, !!selMode());
     c.appendChild(sw);
     if (!TRACK_TYPES.includes(d.type)) return;
     const st = document.createElement('button');
@@ -829,7 +831,7 @@ function renderSelPop() {
     st.onclick = () => openMenu($('popMenu'), st, menu => {
       menu.innerHTML = STYLE_ITEMS.map(([v, l]) => `<button data-style="${v}" class="${v === d.style ? 'on' : ''}">${L(l)}</button>`).join('');
       menu.onclick = (e) => { const b = e.target.closest('[data-style]'); if (!b) return; closeMenus(); tweakSelected({ geom: false, apply: nd => { nd.style = b.dataset.style; } }); };
-    });
+    }, !!selMode());
     c.appendChild(st);
   });
   if (d.locked) { const n = document.createElement('div'); n.className = 'note'; n.textContent = '🔒 ' + L('Locked in this challenge'); el.appendChild(n); }
@@ -846,7 +848,33 @@ function renderSelPop() {
   if (chainLinks().kids.has(d.id)) btn('⤵ Insert after', '', () => startInsert(d.id));
   if (!d.locked) btn('🗑 Delete', 'del', () => deletePiece(d.id));
   el.appendChild(ft);
-  if (HANDLE[d.type] && !d.locked && store.get('bc.handleTip', 0) < 4) { const n = document.createElement('div'); n.className = 'note'; n.textContent = L('Tip: drag the orange handle · Shift = slope · right-click for more'); el.appendChild(n); }
+  if (HANDLE[d.type] && !d.locked && store.get('bc.handleTip', 0) < 4) { const n = document.createElement('div'); n.className = 'note'; n.textContent = L(touchScreen() ? 'Tip: drag the orange handle · hold a piece for more' : 'Tip: drag the orange handle · Shift = slope · right-click for more'); el.appendChild(n); }
+}
+// on a phone the editor takes the dock's place as a sheet (or sits on the right when the phone lies on its side)
+const touchScreen = () => matchMedia('(pointer: coarse)').matches;
+const selMode = () => !phone() ? '' : window.innerHeight <= 520 ? 'aside' : 'sheet';
+function placeSelPop(el) {
+  const mode = selMode();
+  if (mode === 'sheet' && el.parentElement !== $('dock')) $('dock').prepend(el);
+  if (mode !== 'sheet' && el.parentElement !== document.body) document.body.appendChild(el);
+  el.classList.toggle('sheet', mode === 'sheet'); el.classList.toggle('aside', mode === 'aside');
+  document.body.classList.toggle('sel-sheet', mode === 'sheet'); document.body.classList.toggle('sel-aside', mode === 'aside');
+  if (mode) el.style.left = el.style.top = el.style.visibility = '';
+}
+// ...and the chosen piece slides into the part of the screen the editor leaves free
+function keepInView() {
+  const el = $('selPop');
+  if (!S.selected || S.cam !== 'orbit' || el.classList.contains('hidden')) return;
+  const r = el.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight;
+  const box = { l: 0, r: el.classList.contains('aside') ? r.left : W, t: $('top').getBoundingClientRect().bottom, b: el.classList.contains('sheet') ? r.top : H - $('dock').offsetHeight };
+  _v.copy(S.selAnchor).project(camera);
+  const ax = (_v.x + 1) / 2 * W, ay = (1 - _v.y) / 2 * H, m = 50;
+  if (_v.z < 1 && ax > box.l + m && ax < box.r - m && ay > box.t + m && ay < box.b - m) return;
+  const fwd = camera.getWorldDirection(V());
+  const wpp = 2 * Math.max(0.05, S.selAnchor.clone().sub(camera.position).dot(fwd)) * Math.tan(camera.fov * DEG / 2) / H;
+  const shift = V().setFromMatrixColumn(camera.matrixWorld, 0).multiplyScalar(-((box.l + box.r) / 2 - ax) * wpp)
+    .addScaledVector(V().setFromMatrixColumn(camera.matrixWorld, 1), ((box.t + box.b) / 2 - ay) * wpp);
+  flyTo(camera.position.clone().add(shift), controls.target.clone().add(shift));
 }
 // the little tag under the active ring: how high it is and how fast the ball gets there
 function positionRingTag(now) {
@@ -869,7 +897,7 @@ function positionRingTag(now) {
 const _v = V();
 function positionSelPop() {
   const el = $('selPop');
-  if (el.classList.contains('hidden')) return;
+  if (el.classList.contains('hidden') || el.classList.contains('sheet') || el.classList.contains('aside')) return;
   _v.copy(S.selAnchor).project(camera);
   const r = canvas.getBoundingClientRect();
   let x = r.left + (_v.x + 1) / 2 * r.width, y = r.top + (1 - _v.y) / 2 * r.height;
@@ -1833,6 +1861,7 @@ function renderTop() {
   $('ballName').textContent = L(cur.name);
   $('speedLabel').textContent = SPEEDS.find(s => s[0] === S.timeScale)[1];
   $('btnSpeed').classList.toggle('on', S.timeScale !== 1);
+  document.querySelector('[data-proxy="btnSpeed"]').classList.toggle('on', S.timeScale !== 1);
   $('langLabel').textContent = getLang() === 'he' ? 'English' : 'עברית';
 }
 function fillBallMenu(menu) {
@@ -1864,6 +1893,9 @@ function openMenu(menu, anchor, fill, up) {
 function closeMenus() { document.querySelectorAll('.menu').forEach(m => m.classList.add('hidden')); }
 document.addEventListener('click', (e) => { if (!e.target.closest('.menu, [data-menu]')) closeMenus(); });
 $('btnMore').onclick = () => openMenu($('moreMenu'), $('btnMore'));
+// on a phone the less-used play buttons live at the top of the ⋯ menu
+$('moreMenu').addEventListener('click', (e) => { const b = e.target.closest('[data-proxy]'); if (b) { closeMenus(); $(b.dataset.proxy).click(); } });
+const shown = el => el.offsetParent ? el : $('btnMore');
 function renderLab() {
   chips($('gravChips'), GRAVITY.map(([v, l]) => [v, L(l)]), v => v === world.g, v => {
     if (S.challenge && S.challenge.def.gravity) { toast(L('Locked in this challenge'), true); return; }
@@ -1873,7 +1905,7 @@ function renderLab() {
   $('chkKid').checked = S.kid;
 }
 // speed menu
-$('btnSpeed').onclick = () => openMenu($('speedMenu'), $('btnSpeed'), m => {
+$('btnSpeed').onclick = () => openMenu($('speedMenu'), shown($('btnSpeed')), m => {
   m.innerHTML = SPEEDS.map(([v, l, d]) => `<button data-ts="${v}" class="${v === S.timeScale ? 'on' : ''}">${l} <span class="sub">${L(d)}</span></button>`).join('');
 });
 $('speedMenu').onclick = (e) => {
@@ -2135,7 +2167,18 @@ function stepSlope(dir) {
 function togglePause() { S.paused = !S.paused; $('btnPause').classList.toggle('on', S.paused); $('btnPause').innerHTML = S.paused ? '<i>▶</i>' : '<i>⏸</i>'; }
 
 // ================================================================ top bar, bars & menus
-document.querySelectorAll('#camModes button').forEach(b => b.addEventListener('click', () => { sound.ensure(); setCam(b.dataset.cam); }));
+document.querySelectorAll('#camModes button').forEach(b => b.addEventListener('click', () => {
+  sound.ensure();
+  // on a phone only the current view shows; tapping it lists the others
+  if (phone()) {
+    openMenu($('popMenu'), $('camModes'), m => {
+      m.innerHTML = [...document.querySelectorAll('#camModes button')].map(c => `<button data-pick="${c.dataset.cam}" class="${c.classList.contains('on') ? 'on' : ''}">${c.innerHTML}</button>`).join('');
+      m.onclick = (e) => { const p = e.target.closest('[data-pick]'); if (p) { closeMenus(); setCam(p.dataset.pick); } };
+    });
+    return;
+  }
+  setCam(b.dataset.cam);
+}));
 $('btnRelease').onclick = () => releaseAll();
 $('btnAuto').onclick = () => { S.auto = !S.auto; S.autoT = 0; $('btnAuto').classList.toggle('on', S.auto); };
 $('btnPause').onclick = togglePause;
@@ -2151,6 +2194,15 @@ $('btnSound').onclick = () => { sound.ensure(); sound.setOn(!sound.on); $('btnSo
 $('btnMusic').onclick = () => { sound.ensure(); sound.setMusic(!sound.musicOn); $('btnMusic').classList.toggle('on', sound.musicOn); store.set('bc.music', sound.musicOn); };
 $('btnNight').onclick = () => setNight(!S.night);
 $('btnPhoto').onclick = () => { closeMenus(); setPhoto(true); };
+// full screen; on an Android phone it also turns the game sideways (iPhones can't, so there's no button there)
+$('btnFull').classList.toggle('hidden', !document.documentElement.requestFullscreen);
+$('btnFull').onclick = async () => {
+  closeMenus();
+  if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; }
+  try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch { return; }
+  if (touchScreen() && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+};
+document.addEventListener('fullscreenchange', () => $('btnFull').classList.toggle('on', !!document.fullscreenElement));
 $('btnLang').onclick = () => { setLang(getLang() === 'he' ? 'en' : 'he'); store.set('bc.lang', getLang()); renderAll(); };
 $('btnChallenges').onclick = openChallenges;
 $('btnHelp').onclick = () => { closeMenus(); $('help').classList.remove('hidden'); };
@@ -2488,7 +2540,7 @@ async function replayLooped() {
 // ---------------------------------------------------------------- release modes and races
 const AUTO_MODES = [['off', '⏹ Off'], ['steady', '🔁 One every 2 s'], ['queue', '🌈 Rainbow queue (8 balls)'], ['mixed', '🎲 Mixed balls'], ['race', '🏁 Race the towers']];
 S.autoMode = 'off';
-$('btnAuto').onclick = () => openMenu($('autoMenu'), $('btnAuto'), m => {
+$('btnAuto').onclick = () => openMenu($('autoMenu'), shown($('btnAuto')), m => {
   m.innerHTML = AUTO_MODES.map(([k, l]) => `<button data-auto="${k}" class="${S.autoMode === k ? 'on' : ''}">${L(l)}</button>`).join('');
 });
 $('autoMenu').onclick = (e) => { const b = e.target.closest('[data-auto]'); if (b) { closeMenus(); setAuto(b.dataset.auto); } };
@@ -2498,6 +2550,7 @@ function setAuto(mode) {
   if (mode === 'race') { if (starts().length < 2) { toast(L('A race needs two Start Towers'), true); mode = 'off'; } else return startRace(); }
   S.autoMode = mode; S.auto = mode !== 'off'; S.autoT = 0; S.autoLeft = 8;
   $('btnAuto').classList.toggle('on', S.auto);
+  document.querySelector('[data-proxy="btnAuto"]').classList.toggle('on', S.auto);
   sound.click();
 }
 function autoTick(simDt) {
@@ -3586,13 +3639,15 @@ function renderFrame() {
   renderCornerCam();
 }
 
-let wasPhone = phone();
+let wasPhone = phone(), wasSel = selMode();
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
   composer.setSize(w, h);
   camera.aspect = w / h; camera.updateProjectionMatrix();
+  document.body.classList.toggle('phone', phone());
   if (phone() !== wasPhone) { wasPhone = phone(); renderDock(); }
+  if (selMode() !== wasSel) { wasSel = selMode(); renderSelPop(); }
 }
 window.addEventListener('resize', resize);
 // overlays sit just above the dock and just below the top bar, whatever their size
