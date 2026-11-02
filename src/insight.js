@@ -67,8 +67,8 @@ export function createInsight(app) {
       el.classList.add('gone'); setTimeout(() => el.remove(), 300);
     };
     newsEl.prepend(el);
-    while (newsEl.children.length > 4) newsEl.lastChild.remove();
-    setTimeout(() => { el.classList.add('gone'); setTimeout(() => el.remove(), 400); }, 9000);
+    while (newsEl.children.length > 3) newsEl.lastChild.remove();
+    setTimeout(() => { el.classList.add('gone'); setTimeout(() => el.remove(), 400); }, 7000);
     return el;
   }
 

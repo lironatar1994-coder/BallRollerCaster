@@ -130,12 +130,14 @@ const TOOLS = {
 const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge', turnstile: 'turnstile', splitter: 'splitter', plinko: 'plinko' };
 const pieceLabel = (d) => d.type === 'curve' ? L(d.opts.dir > 0 ? 'Curve Left' : 'Curve Right') : d.type === 'helix' ? L(d.opts.dir > 0 ? 'Spiral Left' : 'Spiral Right') : d.type === 'bridge' ? L('Connector') : L(TOOLS[TYPE_TOOL[d.type]].label);
 const DOCK_TOOLS = ['select', 'hand', 'bridge', 'erase', 'paint', 'boxsel'];
+// sorted by what you want the ball to do next
 const DOCK_TABS = [
-  ['tracks', 'Tracks', ['start', 'straight', 'curveL', 'curveR', 'helixL', 'helixR', 'drop', 'tunnel']],
-  ['thrills', 'Thrills', ['loop', 'jump', 'switch', 'turnstile', 'splitter', 'xylo', 'lift', 'funnel', 'wheel', 'seesaw']],
-  ['catch', 'Catch & score', ['cup', 'plinko', 'catcher', 'basket', 'tramp', 'dominoes', 'bell', 'bumper']],
-  ['gadgets', 'Gadgets', ['brake', 'booster', 'gate', 'sensor', 'photo', 'screw', 'elevator']],
-  ['room', 'Room & decor', ['pool', 'blocks', 'decor']],
+  ['tracks', 'Paths', ['start', 'straight', 'curveL', 'curveR', 'helixL', 'helixR', 'drop', 'tunnel']],
+  ['tricks', 'Tricks', ['loop', 'jump', 'funnel', 'tramp', 'bumper', 'seesaw', 'wheel', 'booster', 'brake']],
+  ['switches', 'Switches', ['switch', 'turnstile', 'splitter', 'gate', 'sensor']],
+  ['lifts', 'Lifts', ['lift', 'screw', 'elevator']],
+  ['goals', 'Goals', ['cup', 'plinko', 'basket', 'catcher', 'dominoes', 'pool']],
+  ['room', 'Music & room', ['xylo', 'bell', 'photo', 'blocks', 'decor']],
   ['parts', '⭐ My parts', []],
 ];
 // option values: numbers in cm are shown with the local unit; text values are translated
@@ -483,7 +485,12 @@ function updateGhost() {
 }
 
 // ================================================================ committing pieces
+// ---------------------------------------------------------------- one voice at a time
+// Tips and the toys' chatter wait for a quiet moment: nothing talks over building, a notice or a modal
+let lastEditAt = 0;
+const quiet = (gap = 4000) => performance.now() - lastEditAt > gap && !$('toast').classList.contains('show') && !tutor.on && !MODALS.some(id => !$(id).classList.contains('hidden'));
 function pushHistory() {
+  lastEditAt = performance.now();
   const prev = hIdx >= 0 && history[hIdx] ? JSON.parse(history[hIdx]) : [];
   history = history.slice(0, hIdx + 1); histLabels = histLabels.slice(0, hIdx + 1);
   history.push(JSON.stringify(pieces)); histLabels.push(diffLabel(prev, pieces));
@@ -999,6 +1006,7 @@ function releaseAll(quiet) {
   const st = starts();
   if (!st.length) { if (!quiet) { toast(L('First place a 📍 Start Tower'), true); sound.error(); } return []; }
   sound.ensure();
+  S.releases = (S.releases || 0) + 1;
   const made = st.map(i => spawnBall(i.spawn.clone().add(V((Math.random() - 0.5) * 0.002, 0, (Math.random() - 0.5) * 0.002))));
   if (!quiet) sound.release();
   if (!S.follow || !world.balls.includes(S.follow)) S.follow = made[0];
@@ -1054,6 +1062,7 @@ const camPos = V();
 const NOTE_COLORS = ['#ff5d5d', '#ff9f43', '#ffd23f', '#3ccf7a', '#2ec4b6', '#4c8dff', '#9b6bff', '#ff77b7'];
 const C = { goals: [], dominoes: false, maxNotes: 0, maxLifts: 0, teddy: false, splash: false, maxPhotos: 0, best: null, maxGadgets: 0 };
 const GADGET_EVENTS = { note: 'xylophone', brush: 'brake', boost: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', lift: 'lift', kick: 'bumper', splash: 'splash', domino: 'dominoes' };
+let lastGoalToast = -1e9;
 function onWorldEvent(type, a, b, c, d) {
   // which ball this event is about (for ride reports and the watching toys)
   const ball = type === 'impact' || type === 'kick' || type === 'splash' || type === 'clack' ? a : b instanceof Ball ? b : null;
@@ -1078,7 +1087,8 @@ function onWorldEvent(type, a, b, c, d) {
     // a plinko bin scores its own points; the 5 gets the big fanfare
     S.score += b.plinko || 1; buzz([30, 40, 60]); confetti(b.pos, b.plinko === 5 ? 120 : 60);
     if (b.plinko === 5) sound.fanfare(); else sound.goal();
-    toast(b.plinko ? L('Plinko! +{0} · {1}', b.plinko, S.score) : L('🎯 Goal! · {0}', S.score));
+    // with many balls scoring, the cup's own counter does the talking: a notice at most every 6 s
+    if (b.plinko === 5 || performance.now() - lastGoalToast > 6000) { lastGoalToast = performance.now(); toast(b.plinko ? L('Plinko! +{0} · {1}', b.plinko, S.score) : L('🎯 Goal! · {0}', S.score)); }
     sticker('first-goal'); raceGoal(b);
     if (b.ch) C.goals.push({ ride: world.time - b.stats.born, pieceId: a.pieceId, loop: b.ch.loop, teddy: b.ch.teddy, tramp: b.ch.tramp, air: Math.max(b.ch.maxAir, b.ch.air), splash: b.ch.splash, gadgets: b.ch.gadgets.size });
   }
@@ -1177,7 +1187,7 @@ const _c = new THREE.Color();
 function tickPrediction() {
   if (pred.dirty && performance.now() - pred.at > 120) { pred.dirty = false; startPrediction(); }
   if (!pred.running) return;
-  const budget = 9000;
+  const budget = S.lite ? 3000 : 9000;
   let alive = 0;
   for (const R of pred.runs) {
     if (R.done) continue;
@@ -2261,7 +2271,7 @@ $('chkForces').onchange = (e) => { S.forces = e.target.checked; };
 $('chkTrail').onchange = (e) => { S.trails = e.target.checked; };
 $('chkKid').onchange = (e) => { S.kid = e.target.checked; world.assist = S.kid; store.set('bc.kid', S.kid); schedulePrediction(); toast(L(S.kid ? 'Kid mode on: slow balls get a gentle push' : 'Kid mode off: pure physics')); };
 function closeModals() { closeMenus(); for (const id of MODALS) $(id).classList.add('hidden'); }
-const MODALS = ['help', 'chModal', 'winModal', 'galleryModal', 'albumModal', 'roomsModal', 'sharedModal'];
+const MODALS = ['help', 'chModal', 'winModal', 'galleryModal', 'albumModal', 'roomsModal', 'sharedModal', 'settingsModal'];
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', (e) => { if (e.target === m) closeModals(); }));
 document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
   const a = b.dataset.act;
@@ -2381,6 +2391,7 @@ const app = {
   openWindow: (t) => openWindow(t), designHash, trackPoints, decorNear,
   sticker: (id) => sticker(id),
   news: (...a) => insight.news(...a),
+  quiet: (gap) => quiet(gap),
   lastRun: () => insight.lastRun,
   trouble: () => pred.runs.find(r => r.done && r.trouble),
   onRun(run) {
@@ -3533,22 +3544,21 @@ $('galExamples').onclick = (e) => {
 };
 
 // ---------------------------------------------------------------- the guided tour
+// a first build you do yourself, step by step: watch a run, add a piece, watch it again
 const TOUR = [
-  { text: 'Welcome to Ball Coaster! Build marble runs in a toy room — with real physics.' },
-  { text: 'Press ▶ Release to send a ball down the coaster.', at: '#btnRelease', wait: () => world.balls.length > 0 },
-  { text: 'This pill shows where the ball ends up. The 🔮 line in the room shows its path — a red ring marks a fall.', at: '#predPill' },
-  { text: 'The glowing ring is where the next piece goes. Hover a piece below to preview it, click to add it.', at: '#dockPieces', wait: () => tourAdded },
-  { text: 'The build pad next to the ring: pick a turn, a slope and a tilt. A green dot means the ball makes it. ✨ finishes the run into a goal for you!', at: '#buildPad' },
-  { text: 'Click any piece to change it — everything after it moves along. Drag the orange handle to stretch it.' },
-  { text: 'Ride inside the ball with 🎢, and try the 🏆 Room tour missions.', at: '#camModes' },
-  { text: 'Friends will drop by to try your coaster and tell you what they think. Have fun!' },
+  { text: 'Welcome to Ball Coaster! Press ▶ Release to send a ball down the coaster.', at: '#btnRelease', wait: () => S.releases > tutor.mark },
+  { text: 'The glowing ring is where your track goes next. Tap ＋ on its tag to open the build pad.', at: '#ringTag', wait: () => !$('buildPad').classList.contains('hidden') },
+  { text: 'Pick a turn. A green ✓ means the ball will make it — try one!', at: '#buildPad', wait: () => tourAdded },
+  { text: 'Now press ▶ Release again and watch your new piece.', at: '#btnRelease', wait: () => S.releases > tutor.mark },
+  { text: 'Tap any piece to change it. More pieces are in the tabs below — and friends will drop by to try your coaster. Have fun!', at: '#dockTabs' },
 ];
-const tutor = { on: false, i: 0 };
+const tutor = { on: false, i: 0, mark: 0 };
 function startTour() { closeModals(); tutor.on = true; tutor.i = 0; tourAdded = false; showTourStep(); }
 function endTour() { tutor.on = false; store.set('bc.tour', true); $('tutor').classList.add('hidden'); $('tutorArrow').classList.add('hidden'); }
 function showTourStep() {
   const st = TOUR[tutor.i];
   if (!st) { endTour(); return; }
+  tutor.mark = S.releases || 0; tourAdded = false;
   $('tutor').classList.remove('hidden');
   $('tutor').querySelector('.tb').innerHTML = `<small>${tutor.i + 1} / ${TOUR.length}</small> ${L(st.text)}`;
   $('tutorNext').textContent = tutor.i === TOUR.length - 1 ? L("Let's build! 🚀") : L('Next ▶');
@@ -3599,7 +3609,7 @@ const TIPS = [
 ];
 let tipAt = performance.now() + 150000;
 function tipsTick(now) {
-  if (now < tipAt || S.replay || S.photo || tutor.on) return;
+  if (now < tipAt || S.replay || S.photo || tutor.on || !quiet(15000)) return;
   tipAt = now + 170000;
   insight.news('💡', L(TIPS[Math.floor(Math.random() * TIPS.length)]));
 }
@@ -3615,8 +3625,32 @@ const OPTS = {
   heights: { get: () => S.heights, set: (v) => { S.heights = v; refreshHeights(); } },
   pro: { get: () => S.pro, set: (v) => { S.pro = v; renderSelPop(); } },
   haptics: { get: () => S.haptics, set: (v) => { S.haptics = v; buzz(20); } },
+  lite: { get: () => S.lite, set: (v) => setLite(v) },
+  fps: { get: () => S.fps, set: (v) => { S.fps = v; $('fpsMeter').classList.toggle('hidden', !v); } },
 };
 $('optHaptics').classList.toggle('hidden', !(navigator.vibrate && touchScreen()));
+
+// ---------------------------------------------------------------- Lite mode and the frame-time meter
+// Lite: fewer pixels, no shadows or night glow, and a third of the prediction work per frame
+S.lite = store.get('bc.lite', false); S.fps = store.get('bc.fps', false);
+function setLite(on) {
+  S.lite = on;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, on ? 1.25 : 2));
+  renderer.shadowMap.enabled = !on;
+  scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); });
+  resize();
+}
+const frameStat = { avg: 16, shown: 0, slowFor: 0, offered: store.get('bc.liteOffered', false) };
+function frameStatTick(dt, now) {
+  frameStat.avg += (dt * 1000 - frameStat.avg) * 0.05;
+  if (S.fps && now - frameStat.shown > 400) { frameStat.shown = now; $('fpsMeter').textContent = `${frameStat.avg.toFixed(1)} ms · ${Math.round(1000 / frameStat.avg)} fps${S.lite ? ' · 🪶' : ''}`; }
+  // a struggling device gets one gentle suggestion
+  frameStat.slowFor = frameStat.avg > 45 && !document.hidden ? frameStat.slowFor + dt : 0;
+  if (!S.lite && !frameStat.offered && frameStat.slowFor > 8) {
+    frameStat.offered = true; store.set('bc.liteOffered', true);
+    insight.news('🪶', L('Running slowly? Tap here for Lite mode'), null, () => { setLite(true); store.set('bc.lite', true); syncOptions(); });
+  }
+}
 function syncOptions() { document.querySelectorAll('[data-opt]').forEach(b => b.classList.toggle('on', !!OPTS[b.dataset.opt].get())); }
 document.querySelectorAll('[data-opt]').forEach(b => b.addEventListener('click', () => {
   const o = OPTS[b.dataset.opt], v = !o.get();
@@ -3627,7 +3661,8 @@ $('btnRooms').onclick = openRooms;
 $('btnGallery').onclick = () => openGallery();
 $('btnAlbum').onclick = openAlbum;
 $('btnShare').onclick = copyShareLink;
-$('btnVisit').onclick = () => { closeMenus(); visitors.callNow(); };
+$('btnVisit').onclick = () => { closeModals(); visitors.callNow(); };
+$('btnSettings').onclick = () => { closeMenus(); syncOptions(); $('settingsModal').classList.remove('hidden'); };
 $('btnTour').onclick = () => { closeMenus(); startTour(); };
 
 // ---------------------------------------------------------------- soft contact shadows under everything that stands on the floor
@@ -3750,6 +3785,7 @@ function assembleIn() {
 function everyFrame(dt, adv, now) {
   // a blocked piece pulses, so it reads as "no" without relying on red alone
   ghostMats.bad.opacity = reduceMotion() ? 0.3 : 0.28 + 0.16 * Math.sin(now * 0.012);
+  frameStatTick(dt, now);
   finaleTick(now, dt);
   energyTick();
   for (let i = snaps.length - 1; i >= 0; i--) {
@@ -3867,7 +3903,7 @@ function frame(now) {
   processPhotos();
 }
 function renderFrame() {
-  if (S.night) composer.render(); else renderer.render(scene, camera);
+  if (S.night && !S.lite) composer.render(); else renderer.render(scene, camera);
   renderCornerCam();
 }
 
@@ -3909,6 +3945,8 @@ assembleIn();
 store.set('bc.visitedRooms', [...new Set([...store.get('bc.visitedRooms', []), room.kind])]);
 insight.renderWindow();
 syncOptions();
+if (S.lite) setLite(true);
+$('fpsMeter').classList.toggle('hidden', !S.fps);
 if (linkCode()) checkSharedLink();
 else if (!store.get('bc.tour', false)) setTimeout(startTour, 900);
 requestAnimationFrame(loop);

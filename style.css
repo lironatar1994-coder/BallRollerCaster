@@ -47,13 +47,19 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .menu kbd { margin-inline-start: auto; }
 #moreMenu { min-width: 250px; }
 .menu { max-height: calc(100vh - 70px); overflow-y: auto; overscroll-behavior: contain; }
-#moreMenu button.on { background: none; }
-#moreMenu button.on:hover { background: #f4f1ff; }
-#moreMenu .tick { width: 30px; height: 18px; border-radius: 9px; background: #dcdce6; position: relative; margin-inline-start: auto; flex: 0 0 auto; transition: background .15s; }
-#moreMenu .tick::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform .15s; }
-#moreMenu button.on .tick { background: var(--ok); }
-#moreMenu button.on .tick::after { transform: translateX(12px); }
+#moreMenu button.on, .optList button.on { background: none; }
+#moreMenu button.on:hover, .optList button:hover { background: #f4f1ff; }
+#moreMenu .tick, .optList .tick { width: 30px; height: 18px; border-radius: 9px; background: #dcdce6; position: relative; margin-inline-start: auto; flex: 0 0 auto; transition: background .15s; }
+#moreMenu .tick::after, .optList .tick::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform .15s; }
+#moreMenu button.on .tick, .optList button.on .tick { background: var(--ok); }
+#moreMenu button.on .tick::after, .optList button.on .tick::after { transform: translateX(12px); }
 #moreMenu .tick + kbd { margin-inline-start: 0; }
+/* the settings panel: the same switches as the menu, in sections */
+.optList { display: flex; flex-direction: column; gap: 1px; max-height: min(62vh, 560px); overflow-y: auto; margin: 4px 0 12px; text-align: start; }
+.optList h4 { margin: 10px 4px 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+.optList button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; font-size: 15px; text-align: start; }
+.optList i { font-style: normal; width: 22px; text-align: center; }
+#settingsModal .card-modal { width: min(420px, calc(100vw - 24px)); }
 #ballMenu { min-width: 300px; }
 #ballMenu button { align-items: flex-start; }
 #ballMenu .balldot { flex: 0 0 auto; margin-top: 2px; }
@@ -74,6 +80,10 @@ body.side-open #dock { max-width: calc(100vw - 340px); left: calc(50% - 160px); 
 #settings .lbl { font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); }
 #settings .sep { width: 1px; height: 20px; background: var(--line); }
 #settings .ttl { font-weight: 600; color: var(--accent); }
+/* the slope, colour and style row only shows when asked for (⚙ in the dock) or while placing; the build pad has the slopes */
+body:not(.show-settings):not(.placing) #settings { display: none; }
+#dockTabs [data-settings] { font-size: 14px; }
+body.show-settings #dockTabs [data-settings] { background: var(--ink); color: #fff; }
 #dockMain { display: flex; align-items: stretch; background: var(--panel); backdrop-filter: blur(8px); border-radius: 22px; box-shadow: var(--shadow); padding: 8px; gap: 8px; max-width: 100%; }
 #dockTools { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .tool { width: 58px; border-radius: 12px; padding: 4px 2px 3px; display: flex; flex-direction: column; align-items: center; font-size: 11px; font-weight: 500; color: #4a4e66; transition: background .1s; }
@@ -585,6 +595,7 @@ body.photo #vignette { background: radial-gradient(ellipse 75% 70% at 50% 46%, t
 #ringTag { display: flex; align-items: center; gap: 5px; }
 #ringTag .plus { pointer-events: auto; width: 20px; height: 20px; border-radius: 50%; background: #ffc83d; color: #2b2d42; font-weight: 700; font-size: 14px; line-height: 1; display: grid; place-items: center; margin-inline-start: -4px; }
 #ringTag .plus.on { background: #fff; }
+@media (pointer: coarse) { #ringTag .plus { width: 28px; height: 28px; font-size: 18px; } }
 #ringTag .plus:hover { transform: scale(1.12); }
 #toast.act { pointer-events: auto; display: flex; align-items: center; gap: 10px; }
 #toast button { background: var(--ink); color: #fff; border-radius: 999px; padding: 3px 12px; font-size: 14px; font-weight: 600; }
@@ -634,6 +645,7 @@ body.sel-sheet #dockMain, body.sel-sheet #settings { display: none !important; }
 /* a phone on its side: a panel on the right instead */
 #selPop.aside { left: auto; right: 4px; top: calc(var(--topH, 50px) + 6px); bottom: calc(var(--dockH, 100px) + 8px); transform: none; width: 290px; min-width: 0; max-width: 46vw; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px; gap: 4px; }
 body.sel-aside #camPad, body.sel-aside #predPill { display: none; }
+#fpsMeter { position: fixed; left: 10px; top: calc(var(--topH, 60px) + 8px); z-index: 6; pointer-events: none; font: 600 11px/1 ui-monospace, Menlo, Consolas, monospace; background: rgba(43, 45, 66, 0.75); color: #fff; padding: 4px 8px; border-radius: 8px; }
 /* where the watched ball's energy is: moving, height, or lost to rubbing and bumps */
 #energyHud { position: fixed; right: 12px; bottom: 12px; z-index: 5; display: none; align-items: center; gap: 6px; flex-wrap: wrap; width: 200px; background: var(--panel); backdrop-filter: blur(8px); border-radius: 14px; padding: 6px 10px; box-shadow: var(--shadow); font-size: 11px; }
 #energyHud.on { display: flex; }

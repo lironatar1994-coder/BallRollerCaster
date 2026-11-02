@@ -25,6 +25,8 @@ export function createVisitors(app) {
   const bubbles = [];
   const _p = V();
   function say(who, text, life = 3.4, cls = '') {
+    // the toys wait for a quiet moment and take turns; the visiting kid always gets to speak
+    if (who !== kid && (bubbles.some(b => b.who !== who) || (app.quiet && !app.quiet(2500)))) return;
     for (const b of bubbles.filter(b => b.who === who)) { b.el.remove(); bubbles.splice(bubbles.indexOf(b), 1); }
     const el = document.createElement('div');
     el.className = 'bubble ' + cls;
@@ -353,7 +355,8 @@ export function createVisitors(app) {
     } else if (enabled && !app.S.challenge && !app.S.replay && !app.S.photo) {
       // visits come while you are building, not while the game sits idle
       if (clock - lastBuild < 90) away -= dt;
-      if (away <= 0 && app.pieces.length >= 3) { if (!startVisit()) away = 60; }
+      // and only once a ball has made it into a goal: a friend comes to see something that works
+      if (away <= 0 && app.pieces.length >= 3 && app.S.score > 0) { if (!startVisit()) away = 60; }
     }
     placeBubbles(dt);
   }
