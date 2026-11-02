@@ -47,5 +47,10 @@ export function buildDemo() {
   p = add('straight', out(p), { color: 'purple', slope: 0, opts: { len: 0.1 } });
   add('jump', out(p), { color: 'red', opts: { angle: 30 } });
   add('basket', { x: -0.247, y: 0.0084, z: -0.4, psi: Math.PI / 2, phi: 0 }, { color: 'pink', opts: { height: 0 } });
+  // and a little track of your own that stops in mid-air: the guided tour builds on from its glowing
+  // ring, round towards the basket beside it
+  add('basket', { x: 0.55, y: 0.0084, z: -0.55, psi: Math.PI, phi: 0 }, { color: 'yellow', opts: { height: 0 } });
+  p = add('start', { x: 0.85, y: 0.0084, z: 0.05, psi: Math.PI / 2, phi: 0 }, { color: 'yellow', opts: { height: 0.3 } });
+  add('straight', out(p), { color: 'yellow', opts: { len: 0.2 } });
   return list;
 }

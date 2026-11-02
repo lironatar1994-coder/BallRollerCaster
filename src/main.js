@@ -491,10 +491,11 @@ function showGhost(d) {
 function updateGhost() {
   if (S.move) return;
   const hv = S.hover && TOOLS[S.hover].type === 'append' ? S.hover : null;
-  if (hv && S.insert) {
+  const slot = hv && !S.insert && !activePort() ? endSlot() : null;
+  if (hv && (S.insert || slot)) {
     clearGhost();
-    const plan = planInsert(hv);
-    if (!plan) { S.insert = null; drawMarkers(); return updateGhost(); }
+    const plan = slot ? planInsertAt(slot, hv) : planInsert(hv);
+    if (!plan) { if (slot) return; S.insert = null; drawMarkers(); return updateGhost(); }
     const byId = new Map((plan.list || []).map(d => [d.id, d]));
     for (const id of plan.order || [plan.d.id]) {
       ghostify(buildPiece(byId.get(id) || plan.d), !!plan.reason);
@@ -502,13 +503,13 @@ function updateGhost() {
       if (insts.has(id)) { insts.get(id).group.visible = false; ghostHidden.push(id); }
     }
     S.ghostData = plan.d; S.ghostValid = !plan.reason; S.ghostReason = plan.reason ? L(plan.reason) : '';
-    setHint(S.ghostValid ? `⤵ ${L(TOOLS[hv].label)} — ${L('the rest of the track moves along')}` : '⚠ ' + S.ghostReason);
+    setHint(S.ghostValid ? `⤵ ${L(TOOLS[hv].label)} — ${L(slot ? 'it goes in before the end, which moves along' : 'the rest of the track moves along')}` : '⚠ ' + S.ghostReason);
     renderSelPop();
     return;
   }
   if (hv) {
     const ap = activePort();
-    if (!ap) { clearGhost(); setHint(L('First place a 📍 Start Tower, or click a yellow ring')); return; }
+    if (!ap) { clearGhost(); setHint(L(pieces.length ? 'Click a yellow ring to build from there' : 'First place a 📍 Start Tower')); return; }
     const gd = makeData(hv, { port: portToData(ap.port) });
     showGhost(gd);
     let extra = '';
@@ -578,9 +579,23 @@ function partsLeft(key) {
   return Math.max(0, (lim[key] || 0) - used);
 }
 const canUse = (key) => { const n = partsLeft(key); return n === null || n > 0; };
+// a track that ends in a cup (or another end piece) can still grow: new pieces slip in just before it
+function endSlot() {
+  if (openOuts.length) return null;
+  const { parentOf } = chainLinks();
+  let best = null;
+  for (const d of pieces) {
+    const inst = insts.get(d.id), par = parentOf.get(d.id);
+    if (d.locked || !inst || inst.outs.length || !par || PIECES[d.type].kind === 'place') continue;
+    if (!best || d.id > best.id) best = { id: d.id, parent: par.id, out: par.out };
+  }
+  return best;
+}
 function tryAppend(toolKey) {
   if (S.insert) return insertPiece(toolKey);
   const ap = activePort();
+  const slot = !ap && endSlot();
+  if (slot) { S.insert = { parent: slot.parent, out: slot.out }; const ok = insertPiece(toolKey); S.insert = null; drawMarkers(); updateGhost(); return ok; }
   if (!ap) { toast(L('First place a 📍 Start Tower'), true); sound.error(); return false; }
   const d = makeData(toolKey, { port: portToData(ap.port) });
   const inst = buildPiece(d);
@@ -998,7 +1013,9 @@ function positionRingTag(now) {
   _v.copy(I.p).project(camera);
   const r = canvas.getBoundingClientRect();
   const x = r.left + (_v.x + 1) / 2 * r.width, y = r.top + (1 - _v.y) / 2 * r.height;
-  el.style.left = x + 'px';
+  // (the tag itself stays on the screen, even when the ring is near an edge)
+  const half = (el.offsetWidth || 120) / 2;
+  el.style.left = THREE.MathUtils.clamp(x, half + 4, window.innerWidth - half - 4) + 'px';
   el.style.top = (y + 26) + 'px';
   // off the screen (or behind the camera): an arrow at the edge points the way back to it
   const off = _v.z > 1 || x < r.left + 20 || x > r.right - 20 || y < r.top + 60 || y > r.bottom - 60;
@@ -1034,7 +1051,7 @@ $('ringEdge').onclick = () => {
   flyTo(I.p.clone().add(off), I.p.clone());
   sound.click();
 };
-const _v = V();
+const _v = V(), _v2 = V();
 function positionSelPop() {
   const el = $('selPop');
   if (el.classList.contains('hidden') || el.classList.contains('sheet') || el.classList.contains('aside')) return;
@@ -1909,7 +1926,7 @@ function renderDock() {
   $('dockTabs').innerHTML = tabs.map(([k, label]) => `<button class="tab${S.tab === k ? ' on' : ''}" data-tab="${k}">${k === 'tools' ? label : L(label)}</button>`).join('') +
     `<span class="tabEnd"><button class="tab mini" data-settings title="${L('Slope, color and style')}">⚙</button><button class="tab mini" data-fold title="${L('Hide / show the pieces')}">${document.body.classList.contains('dock-folded') ? '▴' : '▾'}</button></span>`;
   const tab = tabs.find(t => t[0] === S.tab) || tabs[0];
-  const hasPort = !!activePort();
+  const hasPort = !!activePort() || !!endSlot();
   if (tab[0] === 'parts') { $('dockPieces').innerHTML = partsHTML(); return; }
   if (tab[0] === 'tools') { $('dockPieces').innerHTML = DOCK_TOOLS.map(k => `<button class="piece toolPiece${S.tool === k ? ' on' : ''}" data-tool="${k}">${ICONS[TOOLS[k].icon]}<span>${L(TOOLS[k].label)}</span></button>`).join(''); return; }
   $('dockPieces').innerHTML = tab[2].map(k => {
@@ -2915,8 +2932,9 @@ function renderStickers() {
 
 // ---------------------------------------------------------------- build arrows next to the ring
 S.arrows = store.get('bc.arrows', true);
-// the arrows stay folded into the ring tag's ＋ until you open them, hover them, or just built something
-let padPinned = store.get('bc.padPinned', false), padUntil = 0, padHover = false;
+// the arrows sit open next to the ring (the easiest way to build); ＋ on the ring tag folds them away,
+// and then they only show while you hover them or just after you built something
+let padPinned = store.get('bc.padPinned', true), padUntil = 0, padHover = false;
 const padOpen = () => padPinned || padHover || performance.now() < padUntil;
 $('ringTag').addEventListener('click', (e) => {
   if (!e.target.closest('.plus')) return;
@@ -2925,6 +2943,9 @@ $('ringTag').addEventListener('click', (e) => {
   sound.click();
 });
 $('buildPad').addEventListener('pointerenter', () => { padHover = true; });
+// while you are using the pad it stays put (the ring moves on as you build; buttons shouldn't run away)
+let padHold = 0;
+$('buildPad').addEventListener('pointerdown', () => { padHold = performance.now() + 1500; });
 $('buildPad').addEventListener('pointerleave', () => { padHover = false; padUntil = performance.now() + 1500; });
 function positionBuildPad() {
   const el = $('buildPad'), I = S.ringInfo;
@@ -2933,11 +2954,15 @@ function positionBuildPad() {
   if (!show) return;
   buildPad.tick();
   if (phone()) { el.style.left = el.style.top = el.style.visibility = ''; return; } // a phone keeps it just above the dock
+  if ((padHover || performance.now() < padHold) && el.style.left) return;
   _v.copy(I.p).project(camera);
   const r = canvas.getBoundingClientRect();
-  // to the right of the ring, or to its left when there is no room
+  // beside the ring, on the side away from where the track is heading (so you can see where it goes)
   const sx = r.left + (_v.x + 1) / 2 * r.width, w = el.offsetWidth || 230, h = el.offsetHeight || 100;
-  el.style.left = (sx + 36 + w < window.innerWidth - 6 ? sx + 36 : Math.max(6, sx - 36 - w)) + 'px';
+  const ap = activePort();
+  const ahead = ap ? _v2.copy(I.p).add(V(Math.cos(ap.port.psi) * 0.1, 0, -Math.sin(ap.port.psi) * 0.1)).project(camera).x - _v.x : 1;
+  const fitsR = sx + 36 + w < window.innerWidth - 6, fitsL = sx - 36 - w > 6;
+  el.style.left = ((ahead > 0 ? !fitsL : fitsR) ? sx + 36 : Math.max(6, sx - 36 - w)) + 'px';
   el.style.top = THREE.MathUtils.clamp(r.top + (1 - _v.y) / 2 * r.height - h / 2, 70, window.innerHeight - h - 160) + 'px';
   el.style.visibility = _v.z > 1 ? 'hidden' : 'visible';
 }
@@ -3411,8 +3436,13 @@ async function runFinishIt() {
       if (goal) targets.push({ p: V(goal.c.x, goal.yTop, goal.c.z), r: inst.B.radius || 0.07 });
       else if (inst.B.water) { const w = inst.B.water[0]; targets.push({ p: V(w.cx, w.surf, w.cz), r: Math.min(w.max.x - w.min.x, w.max.z - w.min.z) / 2 }); }
     }
-    const res = await finishIt({ port: ap.port, make: (k, extra) => makeData(k, extra), others: [...insts.values()], env: simEnv(), ball: S.ballType, targets, pieces, nextId: S.nextId, secs: 45 });
-    if (!res) { toast(L("Couldn't find a way into a goal from here — try another ring"), true); sound.error(); return; }
+    // the test ball starts from the tower this track comes from (there may be more than one)
+    const { parentOf } = chainLinks();
+    let root = ap.id;
+    for (let k = 0; k < 500 && parentOf.get(root); k++) root = parentOf.get(root).id;
+    const from = insts.get(root)?.spawn || null;
+    const res = await finishIt({ port: ap.port, make: (k, extra) => makeData(k, extra), others: [...insts.values()], env: simEnv(), ball: S.ballType, targets, pieces, nextId: S.nextId, secs: 45, from });
+    if (!res) { toast(L("Couldn't find a way into a goal from here — take the last piece back (⌫) and turn towards a goal"), true); sound.error(); return; }
     S.nextId = res.nextId;
     sync(pieces.concat(res.added), { activeFrom: res.added[res.added.length - 1].id });
     pushHistory();
@@ -3430,7 +3460,7 @@ async function runFixIt() {
   toast(L('🔧 Looking for a fix…'));
   try {
     const res = await fixIt({
-      pieces, spot: (R.trouble || R.lastTrack).clone(), env: simEnv(), ball: S.ballType, outcome: R.outcome,
+      pieces, spot: (R.trouble || R.lastTrack).clone(), env: simEnv(), ball: S.ballType, outcome: R.outcome, from: R.inst.spawn,
       base: { outcome: R.outcome, lastT: R.floorT ?? R.t ?? 0 }, secs: Math.min(50, (R.t || 10) + 15), branch: null,
       parentOf: (id) => { const p = chainLinks().parentOf.get(id); return p ? pieces.find(x => x.id === p.id) : null; },
       reflowFrom: (list, id) => { const r = reflow(list, id, chainLinks().kids); return { list: r.list, reason: chainProblem(r.list, r.order) }; },
@@ -3701,23 +3731,26 @@ const TOUR = [
   { html: () => `<b>${L('Welcome to Ball Coaster!')}</b> ${L('First, look around:')}<div class="gest">${(touchScreen()
     ? [['☝️', 'One finger: turn'], ['🤏', 'Two fingers: zoom and slide'], ['👆👆', 'Double-tap: look there']]
     : [['🖱️', 'Drag: turn'], ['🖱️➡', 'Right-drag: slide'], ['⚙️', 'Wheel: zoom'], ['👆👆', 'Double-click: look there']]).map(([i, t]) => `<span><i>${i}</i>${L(t)}</span>`).join('')}</div><small class="lost">${L('Lost? Press ⤢ to see the whole coaster.')}</small>`,
-    wait: () => camAssist.gestures() >= 2, soft: true },
-  { text: 'Now press ▶ Release to send a ball down the coaster.', at: '#btnRelease', wait: () => S.releases > tutor.mark },
-  { text: 'The glowing ring is where your track goes next. Tap ＋ on its tag to open the build pad.', at: '#ringTag', wait: () => !$('buildPad').classList.contains('hidden') },
-  { text: 'Pick a turn. A green ✓ means the ball will make it — try one!', at: '#buildPad', wait: () => tourAdded },
-  { text: 'Now press ▶ Release again and watch your new piece.', at: '#btnRelease', wait: () => S.releases > tutor.mark },
-  { text: 'Tap any piece to change it. More pieces are in the tabs below — and friends will drop by to try your coaster. Have fun!', at: '#dockTabs' },
+    wait: () => camAssist.gestures() >= 2, soft: true, corner: true },
+  { text: 'Now press ▶ Release to send the balls down.', at: '#btnRelease', wait: () => S.releases > tutor.mark },
+  { text: 'The little yellow track is yours, but its ball falls off the end! Build on from its glowing ring: pick a turn towards the basket. A green ✓ means the ball will make it.', at: '#buildPad', side: true, wait: () => tourAdded,
+    // a close look at the ring and the goal it should reach
+    show: () => { const p = S.ringInfo && S.ringInfo.p, g = p && nearestGoal(p); if (p) camAssist.frame(g ? p.clone().lerp(g, 0.5) : p, g ? Math.max(0.25, p.distanceTo(g) / 2 + 0.1) : 0.3); } },
+  { text: 'Now tap ✨ and the track finds its own way into the basket.', at: '#buildPad .magic', wait: () => tourAdded },
+  { text: 'Press ▶ Release and watch your ball go all the way!', at: '#btnRelease', wait: () => (S.score || 0) > tutor.score, soft: true },
+  { text: '🎉 That was your first track! Tap any piece to change it. More pieces are in the tabs below — and friends will drop by to try your coaster. Have fun!', at: '#dockTabs' },
 ];
-const tutor = { on: false, i: 0, mark: 0, at: 0 };
-function startTour() { closeModals(); tutor.on = true; tutor.i = 0; tourAdded = false; showTourStep(); }
+const tutor = { on: false, i: 0, mark: 0, score: 0, at: 0 };
+function startTour() { closeModals(); padPinned = true; tutor.on = true; tutor.i = 0; tourAdded = false; showTourStep(); }
 function endTour() { tutor.on = false; store.set('bc.tour', true); $('tutor').classList.add('hidden'); $('tutorArrow').classList.add('hidden'); }
 function showTourStep() {
   const st = TOUR[tutor.i];
   if (!st) { endTour(); return; }
-  tutor.mark = S.releases || 0; tourAdded = false;
+  tutor.mark = S.releases || 0; tutor.score = S.score || 0; tourAdded = false;
   $('tutor').classList.remove('hidden');
   $('tutor').querySelector('.tb').innerHTML = `<small>${tutor.i + 1} / ${TOUR.length}</small> ${st.html ? st.html() : L(st.text)}`;
   tutor.at = performance.now();
+  if (st.show) st.show();
   $('tutorNext').textContent = tutor.i === TOUR.length - 1 ? L("Let's build! 🚀") : L('Next ▶');
   placeTutor();
 }
@@ -3726,8 +3759,30 @@ function placeTutor() {
   const target = st && st.at ? document.querySelector(st.at) : null;
   const r = target && !target.classList.contains('hidden') ? target.getBoundingClientRect() : null;
   $('tutorNext').disabled = !!(st && st.wait && !st.soft && !st.wait());
+  // a card about the whole view sits in the corner, out of the way of the coaster
+  if (st && st.corner) { el.style.transform = 'none'; el.style.left = '12px'; el.style.top = ($('top').getBoundingClientRect().bottom + 12) + 'px'; ar.classList.add('hidden'); return; }
   if (!r || !r.width) { el.style.left = '50%'; el.style.top = '38%'; el.style.transform = 'translate(-50%, -50%)'; ar.classList.add('hidden'); return; }
   el.style.transform = 'none';
+  // pointing into the room: beside the spot, so the card doesn't hide what it talks about
+  if (st.side) {
+    const W = window.innerWidth, H = window.innerHeight, w = el.offsetWidth, h = el.offsetHeight, cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const topB = $('top').getBoundingClientRect().bottom + 10, botB = H - $('dock').getBoundingClientRect().height - 20;
+    if (w < W * 0.55) {
+      const toRight = cx < W / 2;
+      el.style.left = THREE.MathUtils.clamp(toRight ? r.right + 56 : r.left - w - 56, 10, W - w - 10) + 'px';
+      el.style.top = THREE.MathUtils.clamp(cy - h / 2, topB, Math.max(topB, botB - h)) + 'px';
+      ar.classList.remove('hidden'); ar.textContent = toRight ? '👈' : '👉';
+      ar.style.left = (toRight ? r.right + 14 : r.left - 44) + 'px'; ar.style.top = (cy - 18) + 'px';
+    } else {
+      // a phone: the card goes to the far end of the screen from the spot
+      const up = cy > H / 2;
+      el.style.left = Math.max(10, (W - w) / 2) + 'px';
+      el.style.top = (up ? topB : Math.max(topB, botB - h)) + 'px';
+      ar.classList.remove('hidden'); ar.textContent = up ? '👇' : '👆';
+      ar.style.left = (cx - 14) + 'px'; ar.style.top = (up ? r.top - 38 : r.bottom + 4) + 'px';
+    }
+    return;
+  }
   const below = r.top < window.innerHeight / 2;
   const x = Math.max(10, Math.min(window.innerWidth - el.offsetWidth - 10, r.left + r.width / 2 - el.offsetWidth / 2));
   el.style.left = x + 'px';

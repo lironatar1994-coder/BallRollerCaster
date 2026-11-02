@@ -113,7 +113,7 @@ export async function finishIt(ctx) {
   finishes.sort((a, b) => a.length - b.length);
   for (const chain of finishes.slice(0, 8)) {
     const list = ctx.pieces.concat(chain.map(c => c.d));
-    const r = simulate(list, env, { ball, secs: ctx.secs });
+    const r = simulate(list, env, { ball, secs: ctx.secs, from: ctx.from });
     await pause();
     if (r.outcome === 'goal') return { added: chain.map(c => c.d), nextId };
   }
@@ -160,7 +160,7 @@ export async function fixIt(ctx) {
     await pause();
     const plan = ideas[i].make();
     if (!plan || plan.reason) continue;
-    const r = simulate(plan.list, env, { ball, secs: ctx.secs, branch: ctx.branch });
+    const r = simulate(plan.list, env, { ball, secs: ctx.secs, branch: ctx.branch, from: ctx.from });
     if (r.outcome === 'goal' || r.outcome === 'loop' || (r.outcome === 'long' && base.outcome !== 'long')) return { list: plan.list, msg: ideas[i].msg, solved: true };
     // still falls, but further along: keep it in mind
     if (!fallback && r.lastT > base.lastT + 1) fallback = { list: plan.list, msg: ideas[i].msg, solved: false };

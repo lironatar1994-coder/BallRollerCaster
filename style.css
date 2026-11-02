@@ -603,8 +603,11 @@ body.dock-folded #dockMain { padding: 5px 8px; }
 #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 1; background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 58%, rgba(70, 46, 70, 0.16) 100%); }
 body.photo #vignette { background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 62%, rgba(40, 26, 40, 0.22) 100%); }
 #ringTag { display: flex; align-items: center; gap: 5px; }
-#ringTag .plus { pointer-events: auto; width: 20px; height: 20px; border-radius: 50%; background: #ffc83d; color: #2b2d42; font-weight: 700; font-size: 14px; line-height: 1; display: grid; place-items: center; margin-inline-start: -4px; }
+#ringTag .plus { pointer-events: auto; width: 24px; height: 24px; border-radius: 50%; background: #ffc83d; color: #2b2d42; font-weight: 700; font-size: 14px; line-height: 1; display: grid; place-items: center; margin-inline-start: -4px; }
 #ringTag .plus.on { background: #fff; }
+#ringTag .plus:not(.on) { animation: plusGlow 1.6s ease-in-out infinite; }
+@keyframes plusGlow { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 200, 61, 0.7); } 50% { box-shadow: 0 0 0 7px rgba(255, 200, 61, 0); } }
+@media (prefers-reduced-motion: reduce) { #ringTag .plus:not(.on) { animation: none; } }
 @media (pointer: coarse) { #ringTag .plus { width: 28px; height: 28px; font-size: 18px; } }
 #ringTag .plus:hover { transform: scale(1.12); }
 #toast.act { pointer-events: auto; display: flex; align-items: center; gap: 10px; }
