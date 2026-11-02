@@ -11,7 +11,7 @@ const DESIGN = { x0: -2.4, x1: 2.4, z0: -2.0, z1: 2.0, h: 2.6 };
 export const ROOM = { x0: DESIGN.x0 * ROOM_SCALE, x1: DESIGN.x1 * ROOM_SCALE, z0: DESIGN.z0 * ROOM_SCALE, z1: DESIGN.z1 * ROOM_SCALE, h: DESIGN.h * ROOM_SCALE };
 
 // colliders are built in design units like the meshes, then scaled once at the end
-function scaleCollider(c, s) {
+export function scaleCollider(c, s) {
   const sv = (v) => v && v.multiplyScalar(s);
   if (c instanceof PlaneCollider) { c.d *= s; return; }
   for (const k of ['cx', 'cy', 'cz', 'hx', 'hy', 'hz', 'R', 'y0', 'y1']) if (typeof c[k] === 'number') c[k] *= s;
@@ -342,5 +342,21 @@ export function buildRoom(scene) {
   };
 
   for (const c of colliders) scaleCollider(c, S);
-  return { group, colliders, placeables, solids, sun, setNight, scale: S, teddy: new THREE.Vector3(tx, 0.82, tz).multiplyScalar(S) };
+  const lights = [hemi, sun, sun.target, lamp, fill, deskLight, deskLight.target];
+  const V = (x, y, z) => new THREE.Vector3(x, y, z).multiplyScalar(S);
+  return {
+    kind: 'kids', name: "Kid's Room", group, colliders, placeables, solids, sun, setNight, scale: S, bounds: ROOM,
+    teddy: V(tx, 0.82, tz),
+    // where toy spectators can sit (world coordinates), and where a visitor comes in
+    seats: [V(1.55, 0.485, -0.25), V(-0.8, 1.25, -1.86), V(-2.05, 0.65, -0.5), V(0.45, 0.43, -1.77), V(1.05, 0.012, 1.45), V(-1.9, 0.012, 1.2)],
+    door: { p: V(-1.2, 0, z1 - 0.25), out: V(-1.2, 0, z1 + 0.4) },
+    water: [],
+    dispose() { scene.remove(group, ...lights); disposeTree(group); },
+  };
+}
+export function disposeTree(root) {
+  root.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    for (const m of [].concat(o.material || [])) { for (const k of ['map', 'emissiveMap']) if (m[k]) m[k].dispose(); m.dispose(); }
+  });
 }

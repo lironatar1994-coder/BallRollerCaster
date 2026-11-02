@@ -382,3 +382,154 @@ export function blockTexture(letter, color) {
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   });
 }
+
+// ---- the other rooms (kitchen, bathroom, garden, attic)
+// one drawing, several repeats: each repeat gets its own texture over the same canvas
+function repeated(key, rx, ry, draw) {
+  const c = memo('canvas' + key, draw);
+  return memo(key + '@' + rx + ',' + ry, () => tex(c, rx, ry));
+}
+
+// glazed square tiles with grout lines; the colours are laid out as a checkerboard
+export function tilesTexture(cols = ['#ffffff'], grout = '#e3e7ea', n = 4, rx = 1, ry = 1) {
+  return repeated('tiles' + cols.join() + grout + n, rx, ry, () => {
+    const [c, g] = cnv(512, 512);
+    const s = 512 / n;
+    g.fillStyle = grout; g.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      const x = i * s + 3, y = j * s + 3, w = s - 6;
+      g.fillStyle = shade(cols[(i + j) % cols.length], 0.96 + rnd() * 0.05); g.fillRect(x, y, w, w);
+      // a soft glaze highlight across one corner
+      const hl = g.createLinearGradient(x, y, x + w, y + w);
+      hl.addColorStop(0, 'rgba(255,255,255,0.35)'); hl.addColorStop(0.45, 'rgba(255,255,255,0)');
+      g.fillStyle = hl; g.fillRect(x, y, w, w);
+    }
+    return c;
+  });
+}
+
+// gingham: two crossing sets of see-through bands, darker where they overlap
+export function ginghamTexture(col = '#ff8fa3', n = 8, rx = 1, ry = 1) {
+  return repeated('gingham' + col + n, rx, ry, () => {
+    const [c, g] = cnv(256, 256);
+    const s = 256 / n;
+    g.fillStyle = '#fffaf4'; g.fillRect(0, 0, 256, 256);
+    g.fillStyle = col; g.globalAlpha = 0.5;
+    for (let i = 0; i < n; i += 2) { g.fillRect(i * s, 0, s, 256); g.fillRect(0, i * s, 256, s); }
+    g.globalAlpha = 1;
+    // woven threads
+    g.strokeStyle = 'rgba(255,255,255,0.16)'; g.lineWidth = 1;
+    for (let i = 0; i < 256; i += 4) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke(); }
+    return c;
+  });
+}
+
+// lawn: soft mottling, lots of little blades and a few daisies
+export function grassTexture(rx = 1, ry = 1) {
+  return repeated('grass', rx, ry, () => {
+    const [c, g] = cnv(512, 512);
+    g.fillStyle = '#8fd17a'; g.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 40; i++) {
+      const x = rnd() * 512, y = rnd() * 512, r = 20 + rnd() * 50;
+      g.fillStyle = rnd() < 0.5 ? 'rgba(110,185,90,0.3)' : 'rgba(175,228,135,0.3)';
+      // drawn on every side of the seam so the tile repeats cleanly
+      for (const dx of [-512, 0, 512]) for (const dy of [-512, 0, 512]) { g.beginPath(); g.arc(x + dx, y + dy, r, 0, Math.PI * 2); g.fill(); }
+    }
+    const blades = ['#6fbf5e', '#7fcb6a', '#9ad985', '#a9e08f', '#5fae52'];
+    g.lineWidth = 2; g.lineCap = 'round';
+    for (let i = 0; i < 2600; i++) {
+      const x = rnd() * 512, y = rnd() * 512, l = 5 + rnd() * 9, a = -Math.PI / 2 + (rnd() - 0.5) * 0.9;
+      g.strokeStyle = blades[i % blades.length];
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+    }
+    for (let i = 0; i < 14; i++) {
+      const x = 20 + rnd() * 472, y = 20 + rnd() * 472;
+      g.fillStyle = '#ffffff';
+      for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; g.beginPath(); g.ellipse(x + Math.cos(a) * 4, y + Math.sin(a) * 4, 3.4, 1.8, a, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = '#ffd23f'; g.beginPath(); g.arc(x, y, 2.2, 0, Math.PI * 2); g.fill();
+    }
+    return c;
+  });
+}
+
+// leafy noise for hedges and tree tops
+export function leafTexture(base = '#5fb35a', rx = 1, ry = 1) {
+  return repeated('leaf' + base, rx, ry, () => {
+    const [c, g] = cnv(256, 256);
+    g.fillStyle = base; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 420; i++) {
+      g.fillStyle = shade(base, 0.75 + rnd() * 0.5);
+      g.beginPath(); g.ellipse(rnd() * 256, rnd() * 256, 7 + rnd() * 5, 4 + rnd() * 3, rnd() * Math.PI, 0, Math.PI * 2); g.fill();
+    }
+    return c;
+  });
+}
+
+// upright boards with dark seams and nail heads: one tile is about a metre (six boards)
+export function planksTexture(base = '#dcb88a', rx = 1, ry = 1) {
+  return repeated('planks' + base, rx, ry, () => {
+    const [c, g] = cnv(512, 512);
+    const n = 6, w = 512 / n;
+    for (let i = 0; i < n; i++) {
+      const x = i * w;
+      g.fillStyle = shade(base, 0.88 + rnd() * 0.2); g.fillRect(x, 0, w, 512);
+      for (let k = 0; k < 10; k++) {
+        g.strokeStyle = `rgba(110,65,25,${0.05 + rnd() * 0.1})`; g.lineWidth = 0.8 + rnd() * 1.6;
+        const gx = x + 6 + rnd() * (w - 12);
+        g.beginPath(); g.moveTo(gx, 0); g.bezierCurveTo(gx + (rnd() - 0.5) * 12, 170, gx + (rnd() - 0.5) * 12, 340, gx, 512); g.stroke();
+      }
+      g.fillStyle = 'rgba(70,40,15,0.55)'; g.fillRect(x, 0, 3, 512);
+      g.fillStyle = 'rgba(60,50,45,0.6)';
+      for (const y of [44, 300]) for (const nx of [12, w - 12]) { g.beginPath(); g.arc(x + nx, y, 2.6, 0, Math.PI * 2); g.fill(); }
+    }
+    return c;
+  });
+}
+
+// a moving box: fibres, packing tape down the middle and a marker label
+export function cardboardTexture(label = '') {
+  return memo('cardboard' + label, () => {
+    const [c, g] = cnv(256, 256);
+    g.fillStyle = '#d6a96c'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 600; i++) {
+      g.fillStyle = rnd() < 0.5 ? `rgba(120,80,40,${0.06 + rnd() * 0.1})` : `rgba(240,210,160,${0.06 + rnd() * 0.1})`;
+      g.fillRect(rnd() * 256, rnd() * 256, 1 + rnd() * 3, 1);
+    }
+    g.fillStyle = 'rgba(240,215,170,0.75)'; g.fillRect(104, 0, 48, 256);
+    g.strokeStyle = 'rgba(120,80,40,0.35)'; g.lineWidth = 8; g.strokeRect(0, 0, 256, 256);
+    if (label) {
+      g.save(); g.translate(128, 196); g.rotate(-0.06);
+      g.fillStyle = 'rgba(70,50,40,0.8)'; g.font = 'bold 42px "Fredoka", "Comic Sans MS", sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(label, 0, 0);
+      g.restore();
+    }
+    const t = tex(c); t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t;
+  });
+}
+
+// the garden's sky dome: the top of the canvas is straight up, the middle is the horizon
+export function skyDomeTexture(night = false) {
+  return memo('skydome' + night, () => {
+    const [c, g] = cnv(1024, 512);
+    const gr = g.createLinearGradient(0, 0, 0, 512);
+    if (night) { gr.addColorStop(0, '#070c2e'); gr.addColorStop(0.42, '#1d2a6b'); gr.addColorStop(0.5, '#3b4590'); gr.addColorStop(1, '#141a40'); }
+    else { gr.addColorStop(0, '#4fa8f5'); gr.addColorStop(0.4, '#a9dcff'); gr.addColorStop(0.5, '#eef9ff'); gr.addColorStop(1, '#d2ecd2'); }
+    g.fillStyle = gr; g.fillRect(0, 0, 1024, 512);
+    if (night) {
+      for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(255,255,255,${0.35 + rnd() * 0.65})`; g.beginPath(); g.arc(rnd() * 1024, rnd() * 240, rnd() * 1.6 + 0.4, 0, Math.PI * 2); g.fill(); }
+      const moon = g.createRadialGradient(700, 150, 6, 700, 150, 90);
+      moon.addColorStop(0, 'rgba(255,250,220,0.9)'); moon.addColorStop(0.3, 'rgba(255,250,220,0.25)'); moon.addColorStop(1, 'rgba(255,250,220,0)');
+      g.fillStyle = moon; g.fillRect(560, 10, 280, 280);
+      g.fillStyle = '#fff8d6'; g.beginPath(); g.arc(700, 150, 22, 0, Math.PI * 2); g.fill();
+    } else {
+      g.fillStyle = 'rgba(255,255,255,0.92)';
+      for (let i = 0; i < 9; i++) {
+        const x = rnd() * 1024, y = 130 + rnd() * 100, s = 50 + rnd() * 60;
+        for (const dx of [-1024, 0, 1024]) for (let k = 0; k < 6; k++) {
+          g.beginPath(); g.ellipse(x + dx + k * s * 0.32, y + Math.sin(k * 1.7) * s * 0.1, s * 0.36, s * 0.2, 0, 0, Math.PI * 2); g.fill();
+        }
+      }
+    }
+    const t = tex(c); t.wrapT = THREE.ClampToEdgeWrapping; return t;
+  });
+}

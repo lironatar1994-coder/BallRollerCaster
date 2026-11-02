@@ -37,7 +37,7 @@
   <div class="grp" id="playGrp">
     <button id="btnRelease" class="go" data-i18n-title="Release a ball from every start · Space" title="Release a ball from every start · Space"><i>▶</i><span data-i18n>Release</span></button>
     <button id="btnBall" class="ballpick" data-menu data-i18n-title="Choose the ball" title="Choose the ball"><span class="balldot" id="ballDot"></span><span id="ballName"></span><i class="caret">▾</i></button>
-    <button id="btnAuto" data-i18n-title="Keep releasing balls" title="Keep releasing balls"><i>🔁</i></button>
+    <button id="btnAuto" data-menu data-i18n-title="Keep releasing balls" title="Keep releasing balls"><i>🔁</i></button>
     <button id="btnPause" data-i18n-title="Pause · P" title="Pause · P"><i>⏸</i></button>
     <button id="btnSpeed" data-menu data-i18n-title="Time speed" title="Time speed"><i>⏱</i><span id="speedLabel">1×</span></button>
     <button id="btnReplay" data-i18n-title="Instant replay of the last seconds · M" title="Instant replay of the last seconds · M"><i>⏪</i></button>
@@ -48,10 +48,14 @@
     <button id="btnChallenges" class="trophy" data-i18n-title="Missions with stars" title="Missions with stars"><i>🏆</i><span data-i18n>Challenges</span></button>
     <button id="btnUndo" data-i18n-title="Undo · Ctrl+Z" title="Undo · Ctrl+Z"><i>↶</i></button>
     <button id="btnRedo" data-i18n-title="Redo · Ctrl+Y" title="Redo · Ctrl+Y"><i>↷</i></button>
+    <button id="btnHist" class="mini" data-menu data-i18n-title="Undo list" title="Undo list"><i>▾</i></button>
     <button id="btnMore" data-menu data-i18n-title="More" title="More"><i>⋯</i></button>
   </div>
 </header>
 <div id="speedMenu" class="menu hidden"></div>
+<div id="autoMenu" class="menu hidden"></div>
+<div id="histMenu" class="menu hidden"></div>
+<div id="viewsMenu" class="menu hidden"></div>
 <div id="ballMenu" class="menu hidden"></div>
 <div id="popMenu" class="menu hidden"></div>
 <div id="moreMenu" class="menu hidden">
@@ -59,8 +63,22 @@
   <button id="btnNight"><i>☀️</i><span data-i18n>Night light</span><b class="tick"></b><kbd>N</kbd></button>
   <button id="btnMusic"><i>🎵</i><span data-i18n>Music</span><b class="tick"></b></button>
   <button id="btnSound" class="on"><i>🔊</i><span data-i18n>Sound</span><b class="tick"></b></button>
+  <button data-opt="visitors" class="on"><i>👧</i><span data-i18n>Friends visit</span><b class="tick"></b></button>
+  <button data-opt="arrows" class="on"><i>➕</i><span data-i18n>Build arrows</span><b class="tick"></b></button>
+  <button data-opt="ghostBall" class="on"><i>👻</i><span data-i18n>Ghost ball</span><b class="tick"></b></button>
+  <button data-opt="seeThrough" class="on"><i>🫥</i><span data-i18n>See-through furniture</span><b class="tick"></b></button>
+  <button data-opt="camFollow"><i>🎯</i><span data-i18n>Camera follows building</span><b class="tick"></b></button>
+  <button data-opt="heights"><i>📏</i><span data-i18n>Height labels</span><b class="tick"></b></button>
+  <button data-opt="pro"><i>🛠️</i><span data-i18n>Pro mode (fine steps)</span><b class="tick"></b></button>
+  <hr>
+  <button id="btnRooms"><i>🏠</i><span data-i18n>Rooms</span></button>
+  <button id="btnGallery"><i>🖼️</i><span data-i18n>My coasters</span></button>
+  <button id="btnAlbum"><i>📸</i><span data-i18n>Photo album</span></button>
+  <button id="btnShare"><i>🔗</i><span data-i18n>Copy share link</span></button>
+  <button id="btnVisit"><i>🚪</i><span data-i18n>Invite a friend now</span></button>
   <button id="btnPhoto"><i>📷</i><span data-i18n>Photo mode</span><kbd>K</kbd></button>
   <button id="btnLang"><i>🌐</i><span id="langLabel">עברית</span></button>
+  <button id="btnTour"><i>🧭</i><span data-i18n>Show me around</span></button>
   <button id="btnHelp"><i>❔</i><span data-i18n>How to play</span><kbd>H</kbd></button>
   <hr>
   <button data-act="demo" data-i18n>✨ Load the demo coaster</button>
@@ -93,15 +111,25 @@
     <h3><span data-i18n>🔮 Prediction</span><i class="fold">▾</i></h3>
     <div class="body small" id="predBody"></div>
   </section>
-  <section class="card" data-card="phys">
-    <h3><span><span data-i18n>📊 Physics</span> <em id="hudBall"></em></span><i class="fold">▾</i></h3>
+  <nav id="winTabs">
+    <button data-win="run" class="on" data-i18n>📋 Run</button>
+    <button data-win="phys" data-i18n>📊 Ball</button>
+    <button data-win="coaster" data-i18n>🎢 Coaster</button>
+    <button data-win="awards" data-i18n>🏆 Awards</button>
+    <button data-win="lab" data-i18n>🧪 Lab</button>
+    <button data-win="close" class="winClose" data-i18n-title="Close the panel · I" title="Close the panel · I">✕</button>
+  </nav>
+  <section class="card win" data-win="run"><div class="body" id="runBody"></div></section>
+  <section class="card win hidden" data-win="phys">
+    <h3 class="nofold"><span><span data-i18n>📊 Physics</span> <em id="hudBall"></em></span></h3>
     <div class="body">
       <div id="hudBody" class="small muted"></div>
       <canvas id="spark" width="520" height="110"></canvas>
     </div>
   </section>
-  <section class="card" data-card="lab">
-    <h3><span data-i18n>🧪 Physics lab</span><i class="fold">▾</i></h3>
+  <section class="card win hidden" data-win="coaster"><div class="body" id="coasterBody"></div></section>
+  <section class="card win hidden" data-win="awards"><div class="body" id="awardsBody"></div><div class="body" id="stickerBody"></div></section>
+  <section class="card win hidden" data-win="lab">
     <div class="body">
       <div class="labrow"><label data-i18n>Gravity</label><div class="chips" id="gravChips"></div></div>
       <div class="labrow"><label data-i18n>Air</label><div class="chips" id="airChips"></div></div>
@@ -118,11 +146,32 @@
   <button id="camFit" data-i18n-title="Show the whole coaster · Z" title="Show the whole coaster · Z">⤢</button>
   <button id="camIn" data-i18n-title="Zoom in" title="Zoom in">＋</button>
   <button id="camOut" data-i18n-title="Zoom out" title="Zoom out">−</button>
+  <button id="camViews" data-menu data-i18n-title="Saved views · Shift+5–8 save, 5–8 go" title="Saved views · Shift+5–8 save, 5–8 go">📌</button>
+  <button id="camPip" data-i18n-title="Ball camera in the corner" title="Ball camera in the corner">🎥</button>
 </div>
 
 <!-- floating editor for the selected piece -->
 <div id="selPop" class="hidden"></div>
 <div id="ringTag" class="hidden"></div>
+<div id="buildPad" class="hidden">
+  <button data-b="curveL" data-i18n-title="Curve left · ←" title="Curve left · ←">↰</button>
+  <button data-b="straight" data-i18n-title="Straight · ↑" title="Straight · ↑">⬆</button>
+  <button data-b="curveR" data-i18n-title="Curve right · →" title="Curve right · →">↱</button>
+  <button data-b="steeper" data-i18n-title="Steeper · ]" title="Steeper · ]">⤓</button>
+  <button data-b="flatter" data-i18n-title="Flatter · [" title="Flatter · [">⤒</button>
+  <button data-b="back" data-i18n-title="Remove the last piece" title="Remove the last piece">⌫</button>
+  <button data-b="finish" class="magic" data-i18n-title="Finish it: build a way into a goal" title="Finish it: build a way into a goal">✨</button>
+</div>
+<div id="multiBar" class="hidden"></div>
+<div id="ctxMenu" class="menu hidden"></div>
+<div id="pieceTip" class="hidden"></div>
+<div id="heightBar" class="hidden"></div>
+<div id="boxSel" class="hidden"></div>
+<div id="bubbles"></div>
+<div id="news"></div>
+<div id="pipFrame" class="hidden"><span id="pipLabel"></span><button id="pipClose">✕</button></div>
+<div id="tutor" class="hidden"><div class="tb"></div><div class="tf"><button id="tutorSkip" class="ghost" data-i18n>Skip</button><button id="tutorNext" data-i18n>Next ▶</button></div></div>
+<div id="tutorArrow" class="hidden">👇</div>
 
 <!-- ride / chase / movie controls -->
 <div id="rideBar">
@@ -138,6 +187,7 @@
   <button id="replayPlay">⏸</button>
   <input type="range" id="replayPos" min="0" max="1000" value="0">
   <button data-rs="1">1×</button><button data-rs="0.5">½×</button><button data-rs="0.25">¼×</button>
+  <button id="replayVideo" data-i18n-title="Save this replay as a video" title="Save this replay as a video">⏺ <span data-i18n>Video</span></button>
   <button id="replayExit" class="exit" data-i18n>✕ Exit</button>
 </div>
 
@@ -155,8 +205,10 @@
 
 <div id="chModal" class="modal hidden">
   <div class="card-modal wide">
-    <h2><span data-i18n>🏆 Challenges</span> <small id="chTotal"></small></h2>
-    <p class="sub" data-i18n>Pick a mission and earn up to 3 stars!</p>
+    <h2><span data-i18n>🏆 Room tour</span> <small id="chTotal"></small></h2>
+    <p class="sub" data-i18n>Pick a room and a mission, and earn up to 3 stars!</p>
+    <div id="roomTabs"></div>
+    <div id="dailyCard"></div>
     <div id="chList"></div>
     <button data-act="close" class="ghost" data-i18n>Close</button>
   </div>
@@ -169,6 +221,41 @@
     <p id="winMsg" class="sub"></p>
     <button id="winNext" class="primary" data-i18n>Next challenge ▶</button>
     <button id="winStay" class="ghost" data-i18n>Keep improving</button>
+  </div>
+</div>
+
+<div id="galleryModal" class="modal hidden">
+  <div class="card-modal wide">
+    <h2 data-i18n>🖼️ My coasters</h2>
+    <div class="row"><input id="galName" maxlength="40" data-i18n-placeholder="Name your coaster" placeholder="Name your coaster"><button id="galSave" class="primary" data-i18n>💾 Save this one</button></div>
+    <div id="galList"></div>
+    <h3 data-i18n>Examples to try</h3>
+    <div id="galExamples"></div>
+    <button data-act="close" class="ghost" data-i18n>Close</button>
+  </div>
+</div>
+<div id="albumModal" class="modal hidden">
+  <div class="card-modal wide">
+    <h2 data-i18n>📸 Photo album</h2>
+    <p class="sub" data-i18n>Photo Booth pieces snap every ball that rolls past. Click a photo to save it.</p>
+    <div id="albumList"></div>
+    <button data-act="close" class="ghost" data-i18n>Close</button>
+  </div>
+</div>
+<div id="roomsModal" class="modal hidden">
+  <div class="card-modal wide">
+    <h2 data-i18n>🏠 Rooms</h2>
+    <p class="sub" data-i18n>Build in any room — each room keeps its own coaster.</p>
+    <div id="roomsList"></div>
+    <button data-act="close" class="ghost" data-i18n>Close</button>
+  </div>
+</div>
+<div id="sharedModal" class="modal hidden">
+  <div class="card-modal">
+    <h2 data-i18n>🔗 A shared coaster!</h2>
+    <p class="sub" id="sharedMsg"></p>
+    <button id="sharedOpen" class="primary" data-i18n>Open it</button>
+    <button data-act="close" class="ghost" data-i18n>Not now</button>
   </div>
 </div>
 

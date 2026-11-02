@@ -130,6 +130,27 @@ export class Sound {
   release() { if (!this.ok()) return; this.tone(700, 0.1, 'sine', 0.2, 0, 1.6); this.burst(2400, 3, 0.04, 0.12); }
   switchFlip() { if (!this.ok()) return; this.burst(3500, 6, 0.025, 0.12); this.tone(1800, 0.03, 'square', 0.03); }
   lift() { if (!this.ok()) return; this.burst(900, 5, 0.04, 0.1); }
+  brush(v) { if (!this.ok()) return; this.burst(5200, 0.6, 0.22, Math.min(0.22, 0.06 + v * 0.08)); this.burst(2600, 0.8, 0.18, 0.06, 0.04); }
+  boost() { if (!this.ok()) return; this.tone(240, 0.16, 'triangle', 0.22, 0, 3.2); this.burst(1800, 3, 0.05, 0.16); this.tone(520, 0.08, 'square', 0.04, 0.02, 2); }
+  gate() { if (!this.ok()) return; this.tone(660, 0.06, 'square', 0.05); this.burst(3000, 5, 0.03, 0.1, 0.03); }
+  beep(k = 0) { if (!this.ok()) return; this.tone(1320 + k * 220, 0.09, 'sine', 0.16); this.tone(1980 + k * 220, 0.12, 'sine', 0.1, 0.08); }
+  splash(v) {
+    if (!this.ok()) return;
+    const vol = Math.min(0.35, 0.08 + v * 0.18);
+    this.burst(1200, 0.5, 0.35, vol); this.burst(3800, 0.7, 0.2, vol * 0.6, 0.03);
+    for (let i = 0; i < 3; i++) this.tone(700 + Math.random() * 900, 0.06, 'sine', vol * 0.25, 0.08 + i * 0.07, 1.8);
+  }
+  jingle() { if (!this.ok()) return; [784, 988, 1175, 1568, 1175, 1568].forEach((f, i) => this.tone(f, 0.18, 'triangle', 0.16, i * 0.09)); }
+  pop(k = 0) { if (!this.ok()) return; this.tone(500 + k * 120, 0.08, 'sine', 0.18, 0, 1.8); }
+  // a soft chirpy "voice" for characters: a few syllables gliding around a pitch
+  babble(n = 4, pitch = 1, vol = 0.12) {
+    if (!this.ok()) return;
+    for (let i = 0; i < n; i++) {
+      const f = (330 + Math.random() * 160) * pitch;
+      this.tone(f, 0.09, 'triangle', vol, i * 0.11, 0.8 + Math.random() * 0.5);
+    }
+  }
+  cheer(vol = 0.1) { if (!this.ok()) return; for (let i = 0; i < 6; i++) this.tone(600 + Math.random() * 500, 0.14, 'triangle', vol, i * 0.05, 1.5); }
 }
 
 // gentle generative background music: day = bright marimba, night = slow music box

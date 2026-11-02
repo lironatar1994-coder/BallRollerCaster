@@ -482,6 +482,7 @@ export class World {
   constructor(opts = {}) {
     this.g = 9.81; this.rho = 1.2; this.time = 0; this.assist = false;
     this.balls = []; this.colliders = []; this.globals = []; this.devices = [];
+    this.water = []; // { min, max, surf, flow? } boxes of water: buoyancy + drag
     this.grid = new Map(); this.cell = 0.2;
     this.silent = !!opts.silent; this.on = opts.on || null;
     this.state = new Map();
@@ -564,6 +565,7 @@ export class World {
           v.x += km * mx; v.y += km * my; v.z += km * mz;
         }
       }
+      if (this.water.length) this.swim(b, dt);
       b.pos.addScaledVector(v, dt);
     }
     for (let i = 0; i < balls.length; i++) {
@@ -574,6 +576,30 @@ export class World {
     this.ballBall();
     for (let i = 0; i < this.devices.length; i++) { const d = this.devices[i]; if (d.step) d.step(this, dt); }
     this.time += dt;
+  }
+  // Archimedes: buoyancy ρ_w·V_sub·g, and water drag ½ρ_w·Cd·A·v² on the wet part. Wood and
+  // hollow plastic float, glass and clay sink slowly.
+  swim(b, dt) {
+    const p = b.pos, r = b.r, v = b.vel;
+    let inWater = false;
+    for (const W of this.water) {
+      let x = p.x, z = p.z;
+      // a turned tub: look at the ball in the tub's own frame
+      if (W.rc !== undefined) { const dx = p.x - W.cx, dz = p.z - W.cz; x = W.cx + W.rc * dx - W.rs * dz; z = W.cz + W.rs * dx + W.rc * dz; }
+      if (x < W.min.x || x > W.max.x || z < W.min.z || z > W.max.z || p.y - r > W.surf || p.y + r < W.min.y) continue;
+      inWater = true;
+      const h = Math.min(2 * r, W.surf - (p.y - r)); // depth of the wet cap
+      const Vsub = Math.PI * h * h * (3 * r - h) / 3, frac = h / (2 * r);
+      v.y += 1000 * Vsub * this.g / b.m * dt;
+      const fx = W.flow ? W.flow.x : 0, fz = W.flow ? W.flow.z : 0;
+      const rx = v.x - fx, ry = v.y, rz = v.z - fz, sp = Math.hypot(rx, ry, rz);
+      const k = 1 / (1 + 0.5 * 1000 * 0.47 * Math.PI * r * r * frac / b.m * sp * dt + 1.2 * frac * dt);
+      v.set(fx + rx * k, ry * k, fz + rz * k);
+      b.w.multiplyScalar(1 / (1 + 6 * frac * dt));
+      if (!b.wet) { b.wet = true; this.emit('splash', b, sp); }
+      break;
+    }
+    if (!inWater) b.wet = false;
   }
   collideBall(b, dt) {
     nC = 0;

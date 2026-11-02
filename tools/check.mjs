@@ -65,6 +65,16 @@ const tracks = {
     ['straight', { style: 'ply', opts: { len: 0.3 } }], ['tunnel'], ['wheel'],
     ['straight', { style: 'rails', opts: { len: 0.3 } }], ['seesaw'], ['straight', { style: 'rails', opts: { len: 0.2 } }], ['cup'],
   ]), 0],
+  'gadgets (sensor, booster, brake, gate, photo booth, screw lift)': [chain([
+    ['start', { port: { x: -0.55, y: 0.0084, z: 0.55, psi: 0, phi: 0 }, opts: { height: 0.6 } }], ['straight', { opts: { len: 0.15 } }],
+    ['sensor', { opts: { effect: 'confetti' } }], ['booster', { opts: { power: 1.2 } }], ['curve', { opts: { angle: 90, radius: 0.15, dir: -1 } }],
+    ['brake', { opts: { len: 0.1, speed: 0.6 } }], ['gate', { opts: { mode: 'timer', interval: 1 } }], ['photo'], ['curve', { opts: { angle: 90, radius: 0.15, dir: -1 } }],
+    ['straight', { opts: { len: 0.1 } }], ['screw', { opts: { height: 0.2, exit: 'back' } }], ['straight', { opts: { len: 0.25 }, slope: 7 }], ['xylo', { slope: 4 }], ['cup'],
+  ]), 0],
+  'elevator and a sensor-opened gate': [chain([
+    ['start', { port: { x: -0.6, y: 0.0084, z: 0.5, psi: 0, phi: 0 }, opts: { height: 0.3 } }], ['straight'], ['elevator', { opts: { height: 0.3 } }],
+    ['sensor', { opts: { effect: 'gate' } }], ['gate', { opts: { mode: 'sensor' } }], ['straight', { opts: { len: 0.3 } }], ['cup'],
+  ]), 0],
 };
 const started = Date.now();
 for (const [name, [list, branch]] of Object.entries(tracks)) {

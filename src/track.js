@@ -330,7 +330,28 @@ const MAT = {
   acrylic: new THREE.MeshPhysicalMaterial({ color: '#ffffff', transparent: true, opacity: 0.16, roughness: 0.05, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide }),
   gold: new THREE.MeshStandardMaterial({ color: '#f5c242', metalness: 0.9, roughness: 0.25 }),
   white: plainMat('#fbf8f2', { roughness: 0.4 }),
+  yellow: plainMat('#ffd23f', { roughness: 0.4 }),
+  blue: plainMat('#4c8dff', { roughness: 0.4 }),
+  orange: plainMat('#ff9f43', { roughness: 0.4 }),
+  bristle: plainMat('#4a4458', { roughness: 0.95 }),
+  leaf: plainMat('#4fbf6a', { roughness: 0.7 }),
+  water: new THREE.MeshPhysicalMaterial({ color: '#59b8ff', transparent: true, opacity: 0.42, roughness: 0.04, clearcoat: 1, depthWrite: false }),
+  lampGlow: new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#ffd27a', emissiveIntensity: 0.6 }),
 };
+export const SENSOR_COLORS = { confetti: '#ff77b7', lights: '#ffd23f', cheer: '#3ccf7a', music: '#9b6bff', gate: '#4c8dff' };
+const PENNANT = new THREE.BufferGeometry().setFromPoints([V(-0.013, 0, 0), V(0.013, 0, 0), V(0, -0.034, 0)]);
+PENNANT.computeVertexNormals(); PENNANT.userData.shared = true;
+const PINBLADE = new THREE.BufferGeometry().setFromPoints([V(0, 0, 0), V(0.032, 0.004, 0.006), V(0.01, 0.03, 0.002)]);
+PINBLADE.computeVertexNormals(); PINBLADE.userData.shared = true;
+let BLOCK_GEO = null;
+const blockGeo = (bs) => { if (!BLOCK_GEO) { BLOCK_GEO = new THREE.BoxGeometry(bs * 0.985, bs * 0.985, bs * 0.985); BLOCK_GEO.userData.shared = true; } return BLOCK_GEO; };
+const blockMat = (ch, col) => {
+  const key = 'block|' + ch + col;
+  if (!matCache.has(key)) matCache.set(key, new THREE.MeshStandardMaterial({ map: TX.blockTexture(ch, col), roughness: 0.5 }));
+  return matCache.get(key);
+};
+// the track sample nearest to arc length x
+const sampleAt = (s, x) => s.reduce((a, c) => Math.abs(c.s - x) < Math.abs(a.s - x) ? c : a);
 
 // ---------------------------------------------------------------- gear mesh (for the lift)
 const gearCache = new Map();
@@ -581,6 +602,185 @@ export class TrampolineDevice {
     this.t += dt;
     if (this.pad) this.pad.position.y = -0.0015 - Math.exp(-this.t * 8) * Math.abs(Math.sin(this.t * 40)) * 0.008;
   }
+}
+
+
+// ---------------------------------------------------------------- gadgets
+// the ball is touching this sweep right now (its contact time is this very substep)
+const onCol = (world, b, col, slack = 0.002) => !b.captured && !b.dead && !b.collected && b.tkCol === col && world.time - b.tkT < slack;
+
+// soft brushes on both walls: a fast ball is combed down to the set speed, a slow one passes
+export class BrakeDevice {
+  constructor(vmax) { this.vmax = vmax; this.col = null; }
+  step(world, dt) {
+    for (const b of world.balls) {
+      if (!onCol(world, b, this.col)) continue;
+      const sp = b.vel.length();
+      if (sp <= this.vmax) continue;
+      const k = Math.max(this.vmax / sp, 1 / (1 + 14 * dt));
+      b.vel.multiplyScalar(k); b.w.multiplyScalar(k);
+      const st = world.devState(this);
+      if (world.time - (st.last ?? -9) > 0.3) { st.last = world.time; world.emit('brush', this, b, sp); }
+    }
+  }
+}
+
+// a spring kicker (no magnets): a paddle snaps forward and gives the ball its speed back
+export class BoosterDevice {
+  constructor(v, s0, s1, T) { this.v = v; this.s0 = s0; this.s1 = s1; this.T = T; this.col = null; this.paddle = null; this.rest = null; }
+  initState() { return { kicked: new Map(), last: -9 }; }
+  step(world) {
+    const st = world.devState(this);
+    for (const b of world.balls) {
+      if (!onCol(world, b, this.col) || b.tkS < this.s0 || b.tkS > this.s1) continue;
+      if (world.time - (st.kicked.get(b.id) ?? -9) < 0.6) continue;
+      const along = b.vel.dot(this.T);
+      if (along >= this.v) continue;
+      b.vel.addScaledVector(this.T, this.v - along);
+      st.kicked.set(b.id, world.time); st.last = world.time;
+      if (st.kicked.size > 200) st.kicked.clear();
+      world.emit('boost', this, b);
+    }
+  }
+  update(world) {
+    if (!this.paddle) return;
+    const k = Math.exp(-(world.time - world.devState(this).last) * 9);
+    this.paddle.position.copy(this.rest).addScaledVector(this.T, 0.03 * k);
+  }
+}
+
+// a gate that holds balls: opens every few seconds (or when a sensor says so) to let one through
+class GateCollider extends BoxCollider {
+  constructor(gate, ...a) { super(...a); this.gate = gate; }
+  collide(b, world) { if (world && world.devState(this.gate).open) return; super.collide(b); }
+}
+export class GateDevice {
+  constructor(o) { Object.assign(this, o); this.col = null; this.flap = null; } // mode, interval, sHold
+  initState() { return { open: false, tOpen: -9, last: -9, trigger: false, angle: 0 }; }
+  step(world) {
+    const st = world.devState(this), now = world.time;
+    if (st.open) { if (now - st.tOpen > 0.3) st.open = false; return; }
+    let waiting = false;
+    for (const b of world.balls) if (onCol(world, b, this.col, 0.01) && b.tkS > this.sHold - 0.05) { waiting = true; break; }
+    if (!waiting) return;
+    const go = this.mode === 'sensor' ? st.trigger : now - st.last > this.interval;
+    if (!go) return;
+    st.trigger = false; st.open = true; st.tOpen = now; st.last = now;
+    world.emit('gate', this);
+  }
+  update(world, dt) {
+    if (!this.flap) return;
+    const st = world.devState(this);
+    st.angle += ((st.open ? 1.4 : 0) - st.angle) * Math.min(1, dt * 18);
+    this.flap.rotation.z = st.angle;
+  }
+}
+
+// fires when a ball rolls past its middle: sensors trigger toys and gates, the photo booth snaps
+export class SensorDevice {
+  constructor(o) { Object.assign(this, o); this.col = null; this.led = null; } // sMid, effect, kind ('sensor' | 'photo')
+  initState() { return { seen: new Map(), last: -9 }; }
+  step(world) {
+    const st = world.devState(this);
+    for (const b of world.balls) {
+      if (!onCol(world, b, this.col, 0.02)) continue;
+      const prev = st.seen.get(b.id);
+      st.seen.set(b.id, b.tkS);
+      if (prev === undefined || prev >= this.sMid || b.tkS < this.sMid) continue;
+      st.last = world.time;
+      if (this.effect === 'gate') for (const d of world.devices) if (d instanceof GateDevice && d.mode === 'sensor') world.devState(d).trigger = true;
+      world.emit(this.kind, this, b);
+    }
+    if (st.seen.size > 200) st.seen.clear();
+  }
+  update(world) {
+    if (this.led) this.led.material.emissiveIntensity = 0.3 + 3 * Math.exp(-(world.time - world.devState(this).last) * 5);
+  }
+}
+
+// Archimedes screw: the ball sits in the thread and is wound slowly upwards
+export class ScrewDevice {
+  constructor(o) { Object.assign(this, o); this.rotor = null; } // Pk, axis, h, S, R, H, pitch, vy, exitPos, exitDir
+  initState() { return { carried: new Map() }; }
+  posAt(y, out) {
+    const th = Math.PI + TAU * y / this.pitch;
+    return out.copy(this.axis).addScaledVector(this.h, Math.cos(th) * this.R).addScaledVector(this.S, Math.sin(th) * this.R).addScaledVector(UP, y);
+  }
+  step(world, dt) {
+    const st = world.devState(this);
+    const busy = [...st.carried.values()].some(y => y < this.pitch * 0.9);
+    if (!busy) {
+      for (const b of world.balls) {
+        if (b.captured || b.dead || b.collected || b.pos.distanceToSquared(this.Pk) > 0.03 * 0.03 || b.vel.lengthSq() > 0.6) continue;
+        b.captured = { dev: this }; st.carried.set(b, 0); world.emit('lift', this, b);
+        break;
+      }
+    }
+    for (const [b, y0] of st.carried) {
+      if (b.dead || b.collected) { st.carried.delete(b); continue; }
+      const y = y0 + this.vy * dt;
+      if (y >= this.H) {
+        b.captured = null; b.cache.clear();
+        b.pos.copy(this.exitPos); b.vel.copy(this.exitDir).multiplyScalar(0.2); b.w.set(0, 0, 0);
+        world.refreshCandidates(b, 0.05);
+        st.carried.delete(b);
+        world.emit('liftdrop', this, b);
+        continue;
+      }
+      st.carried.set(b, y);
+      this.posAt(y, b.pos);
+      b.vel.set(0, this.vy, 0); b.w.multiplyScalar(0.98);
+    }
+  }
+  update(world) { if (this.rotor) this.rotor.rotation.y = -world.time * TAU * this.vy / this.pitch; }
+}
+
+// a little cup on a pole: waits for a ball, rides up, tips it out, comes back down
+export class ElevatorDevice {
+  constructor(o) { Object.assign(this, o); this.cup = null; this.tip = null; } // Pk, H, h, v, exitPos, exitDir
+  initState() { return { phase: 'wait', y: 0, t: 0, ball: null }; }
+  step(world, dt) {
+    const st = world.devState(this);
+    if (st.phase === 'wait') {
+      for (const b of world.balls) {
+        if (b.captured || b.dead || b.collected || b.pos.distanceToSquared(this.Pk) > 0.025 * 0.025 || b.vel.lengthSq() > 0.4) continue;
+        b.captured = { dev: this }; st.ball = b; st.phase = 'up'; world.emit('lift', this, b);
+        break;
+      }
+    } else if (st.phase === 'up') {
+      st.y = Math.min(this.H, st.y + this.v * dt);
+      if (st.ball) { st.ball.pos.copy(this.Pk).addScaledVector(UP, st.y); st.ball.vel.set(0, this.v, 0); }
+      if (st.y >= this.H) { st.phase = 'tip'; st.t = 0; }
+    } else if (st.phase === 'tip') {
+      st.t += dt;
+      if (st.t > 0.35 && st.ball) {
+        const b = st.ball; st.ball = null;
+        if (!b.dead && !b.collected) {
+          b.captured = null; b.cache.clear();
+          b.pos.copy(this.exitPos); b.vel.copy(this.exitDir).multiplyScalar(0.25); b.w.set(0, 0, 0);
+          world.refreshCandidates(b, 0.05);
+          world.emit('liftdrop', this, b);
+        }
+      }
+      if (st.t > 0.7) st.phase = 'down';
+    } else {
+      st.y = Math.max(0, st.y - this.v * 1.6 * dt);
+      if (st.y <= 0) st.phase = 'wait';
+    }
+    if (st.ball && (st.ball.dead || st.ball.collected)) st.ball = null;
+  }
+  update(world) {
+    if (!this.cup) return;
+    const st = world.devState(this);
+    this.cup.position.y = this.base + st.y;
+    const k = st.phase === 'tip' ? Math.sin(Math.min(1, st.t / 0.35) * PI / 2) : 0;
+    this.tip.rotation.z = -k * 0.9;
+  }
+}
+
+export class PinwheelDevice {
+  constructor() { this.rotor = null; }
+  update(world, dt) { if (this.rotor) this.rotor.rotation.z += dt * 2.2; }
 }
 
 // ---------------------------------------------------------------- piece catalog
@@ -1154,6 +1354,371 @@ export const PIECES = {
       ringProbes(B, base, R, base.y + H / 2, 8);
     },
   },
+  brake: {
+    label: 'Brake', kind: 'append', defaults: { len: 0.15, speed: 0.6 },
+    build(d, B, P) {
+      const L = d.opts.len, ph1 = d.slope;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
+      const dev = new BrakeDevice(d.opts.speed);
+      B.paths.push({ samples: s, profile: 'channel', bind: (col) => { dev.col = col; } });
+      B.outs.push(endPort(s, P.psi, ph1));
+      B.devices.push(dev);
+      // tufts of bristles on both walls, reaching in to brush the ball's sides
+      const geos = [], m4 = new THREE.Matrix4();
+      for (let x = 0.012; x < L - 0.008; x += 0.01) {
+        const sm = sampleAt(s, x), R = V().crossVectors(sm.T, sm.U);
+        for (const sd of [-1, 1]) {
+          const g = new THREE.BoxGeometry(0.004, 0.009, 0.0075);
+          m4.makeBasis(sm.T, sm.U, R).setPosition(sm.p.clone().addScaledVector(R, sd * (RC - 0.0035)).addScaledVector(sm.U, -0.004));
+          geos.push(g.applyMatrix4(m4));
+        }
+      }
+      const tufts = new THREE.Mesh(mergeGeometries(geos), MAT.bristle);
+      geos.forEach(g => g.dispose());
+      B.meshes.push(tufts);
+    },
+  },
+  booster: {
+    label: 'Booster', kind: 'append', defaults: { power: 1.4 },
+    build(d, B, P) {
+      const L = 0.16, ph1 = d.slope;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
+      const sm = sampleAt(s, 0.035), R = V().crossVectors(sm.T, sm.U);
+      const dev = new BoosterDevice(d.opts.power, 0.025, 0.1, sampleAt(s, 0.06).T.clone());
+      B.paths.push({ samples: s, profile: 'channel', bind: (col) => { dev.col = col; } });
+      B.outs.push(endPort(s, P.psi, ph1));
+      B.devices.push(dev);
+      // the spring housing beside the track and a paddle arm that sweeps over the channel
+      const basis = new THREE.Matrix4().makeBasis(sm.T, sm.U, R);
+      const housing = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.022, 0.016), MAT.red);
+      housing.quaternion.setFromRotationMatrix(basis);
+      housing.position.copy(sm.p).addScaledVector(R, RC + TH + 0.01).addScaledVector(sm.T, 0.02);
+      const coil = new THREE.Mesh(new THREE.TorusKnotGeometry(0.006, 0.0012, 48, 6, 1, 8), MAT.metal);
+      coil.quaternion.copy(housing.quaternion); coil.position.copy(housing.position).addScaledVector(sm.U, 0.016);
+      const paddle = new THREE.Group();
+      paddle.quaternion.setFromRotationMatrix(basis);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.006, RC * 2 + 0.03), MAT.white);
+      arm.position.set(0, 0.012, -(RC + 0.008));
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.02, RC * 1.3), MAT.red);
+      pad.position.set(0, 0.0, 0);
+      paddle.add(arm, pad);
+      dev.rest = sm.p.clone().addScaledVector(sm.U, -0.002); dev.paddle = paddle; paddle.position.copy(dev.rest);
+      // yellow arrows painted in the channel
+      for (const x of [0.09, 0.115, 0.14]) {
+        const q = sampleAt(s, x), tri = new THREE.Mesh(new THREE.ConeGeometry(0.007, 0.012, 3), MAT.yellow);
+        tri.scale.set(1, 1, 0.25);
+        tri.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(V().crossVectors(q.T, q.U).negate(), q.T, q.U));
+        tri.position.copy(q.p).addScaledVector(q.U, -(RC - 0.0012));
+        B.meshes.push(tri);
+      }
+      B.meshes.push(housing, coil, paddle);
+      B.probes = [housing.position.clone()];
+    },
+  },
+  gate: {
+    label: 'Gate', kind: 'append', defaults: { mode: 'timer', interval: 2 },
+    build(d, B, P) {
+      const L = 0.14, ph1 = d.slope, sHold = 0.085;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
+      const dev = new GateDevice({ mode: d.opts.mode, interval: d.opts.interval, sHold });
+      B.paths.push({ samples: s, profile: 'channel', bind: (col) => { dev.col = col; } });
+      B.outs.push(endPort(s, P.psi, ph1));
+      B.devices.push(dev);
+      const sm = sampleAt(s, sHold), R = V().crossVectors(sm.T, sm.U);
+      const c = sm.p.clone().addScaledVector(sm.T, 0.003);
+      B.colliders.push(new GateCollider(dev, c.x, c.y, c.z, 0.003, 0.02, RC, P.psi, SURFACES.wood));
+      // two posts, a crossbar and a flap hinged on it
+      for (const sd of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.05, 0.008), null);
+        post.position.copy(c).addScaledVector(R, sd * (RC + TH + 0.005)).add(V(0, 0.012, 0)); post.userData.paint = 'solid';
+        B.meshes.push(post);
+      }
+      const hinge = new THREE.Group();
+      hinge.position.copy(c).add(V(0, 0.034, 0)); hinge.rotation.y = P.psi;
+      const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, RC * 2 + TH * 2 + 0.018, 10), MAT.metal);
+      bar.rotation.x = PI / 2; hinge.add(bar);
+      const flapHolder = new THREE.Group(); hinge.add(flapHolder);
+      const flap = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.036, RC * 2 - 0.002), d.opts.mode === 'sensor' ? MAT.blue : MAT.yellow);
+      flap.position.y = -0.019; flapHolder.add(flap);
+      dev.flap = flapHolder;
+      const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.003, 20), d.opts.mode === 'sensor' ? MAT.blue : MAT.yellow);
+      sign.rotation.x = PI / 2; sign.position.set(0, 0.012, 0); hinge.add(sign);
+      B.meshes.push(hinge);
+      B.probes = [hinge.position.clone()];
+    },
+  },
+  sensor: {
+    label: 'Sensor', kind: 'append', defaults: { effect: 'confetti' },
+    build(d, B, P) {
+      const L = 0.12, ph1 = d.slope, sMid = 0.06;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
+      const dev = new SensorDevice({ sMid, effect: d.opts.effect, kind: 'sensor' });
+      B.paths.push({ samples: s, profile: d.style === 'tube' ? 'tube' : 'channel', bind: (col) => { dev.col = col; } });
+      B.outs.push(endPort(s, P.psi, ph1));
+      B.devices.push(dev);
+      const sm = sampleAt(s, sMid), R = V().crossVectors(sm.T, sm.U);
+      const hoop = new THREE.Mesh(new THREE.TorusGeometry(RC + TH + 0.007, 0.0035, 8, 28, PI), null);
+      hoop.userData.paint = 'solid';
+      hoop.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(R, sm.U, sm.T));
+      hoop.position.copy(sm.p).addScaledVector(sm.U, -0.004);
+      const col = SENSOR_COLORS[d.opts.effect] || '#4cc9f0';
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.006, 14, 10), new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.3 }));
+      led.position.copy(sm.p).addScaledVector(sm.U, RC + TH + 0.006);
+      dev.led = led;
+      B.meshes.push(hoop, led);
+      B.probes = [led.position.clone()];
+    },
+  },
+  photo: {
+    label: 'Photo Booth', kind: 'append', defaults: {},
+    build(d, B, P) {
+      const L = 0.16, ph1 = d.slope, sMid = 0.08;
+      const s = turtle(P.p, L, x => ({ psi: P.psi, phi: lerpE(P.phi, ph1, x / L) }));
+      const dev = new SensorDevice({ sMid: sMid - 0.01, kind: 'photo' });
+      B.paths.push({ samples: s, profile: d.style === 'tube' ? 'tube' : 'channel', bind: (col) => { dev.col = col; } });
+      B.outs.push(endPort(s, P.psi, ph1));
+      B.devices.push(dev);
+      const sm = sampleAt(s, sMid), R = V().crossVectors(sm.T, sm.U);
+      const side = R.clone().setY(0).normalize();
+      const foot = sm.p.clone().addScaledVector(side, 0.075);
+      const top = foot.clone().add(V(0, 0.06, 0));
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.07, 8), MAT.metal);
+      pole.position.copy(foot).add(V(0, 0.025, 0));
+      const cam = new THREE.Group(); cam.position.copy(top);
+      cam.lookAt(sm.p);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.02, 0.018), null); body.userData.paint = 'solid';
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.008, 0.012, 16), MAT.black);
+      lens.rotation.x = PI / 2; lens.position.z = 0.014;
+      const flash = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.006, 0.004), new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.3 }));
+      flash.position.set(0.008, 0.013, 0.006);
+      cam.add(body, lens, flash);
+      dev.led = flash;
+      // the photo is taken from just in front of the lens
+      dev.camPos = top.clone().addScaledVector(sm.p.clone().sub(top).normalize(), 0.03); dev.look = sm.p.clone();
+      B.meshes.push(pole, cam);
+      B.pillarPts.push(foot.clone().add(V(0, -0.012, 0)));
+      B.probes = [top.clone()];
+    },
+  },
+  screw: {
+    label: 'Screw Lift', kind: 'append', defaults: { height: 0.3, exit: 'back' },
+    build(d, B, P) {
+      const H = d.opts.height, h = heading(P.psi), S = V().crossVectors(h, UP).normalize();
+      const inlet = turtle(P.p, 0.06, x => ({ psi: P.psi, phi: lerpE(P.phi, 0.03, x / 0.06) }));
+      B.paths.push({ samples: inlet, profile: 'channel', margin1: 0.02 });
+      const E = last(inlet).p, r = 0.0115, R = 0.022;
+      addStop(B, E.clone().addScaledVector(h, 0.0145).add(V(0, 0.004, 0)), P.psi);
+      const Pk = E.clone().addScaledVector(h, 0.011 - r).add(V(0, -(RC - r), 0));
+      const axis = Pk.clone().addScaledVector(h, R);
+      const exitPsi = P.psi + (d.opts.exit === 'left' ? PI / 2 : d.opts.exit === 'right' ? -PI / 2 : PI);
+      const ed = heading(exitPsi);
+      // choose the pitch so the thread delivers the ball right at the exit side
+      const te = Math.atan2(ed.dot(S), ed.dot(h));
+      let base = te - PI; while (base <= 0) base += TAU;
+      const n = Math.max(0, Math.round(H / 0.055 - base / TAU));
+      const pitch = TAU * H / (base + TAU * n);
+      const xs = axis.clone().addScaledVector(ed, R + 0.006).add(V(0, H + (RC - r) + 0.004, 0));
+      const ex = turtle(xs, 0.1, x => ({ psi: exitPsi, phi: lerpE(0.12, d.slope, x / 0.1) }));
+      B.paths.push({ samples: ex, profile: 'channel', margin0: 0.02 });
+      B.outs.push(endPort(ex, exitPsi, d.slope));
+      const dev = new ScrewDevice({ Pk, axis, h, S, R, H, pitch, vy: 0.07, exitPos: xs.clone().add(V(0, -(RC - r) + 0.002, 0)).addScaledVector(ed, 0.008), exitDir: ed });
+      B.devices.push(dev);
+      // clear barrel, a turning shaft with its thread, a cap and a foot
+      const y0 = Pk.y - r - 0.006, y1 = Pk.y + H + 0.02;
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(R + r + 0.004, R + r + 0.004, y1 - y0, 28, 1, true), MAT.acrylic);
+      barrel.position.set(axis.x, (y0 + y1) / 2, axis.z);
+      const rotor = new THREE.Group(); rotor.position.set(axis.x, 0, axis.z);
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, y1 - y0, 12), MAT.white);
+      shaft.position.y = (y0 + y1) / 2;
+      const pts = [];
+      for (let y = 0; y <= H + 0.001; y += pitch / 24) {
+        const th = PI + TAU * y / pitch;
+        pts.push(V(Math.cos(th) * h.x * (R - 0.004) + Math.sin(th) * S.x * (R - 0.004), Pk.y + y - r - 0.002, Math.cos(th) * h.z * (R - 0.004) + Math.sin(th) * S.z * (R - 0.004)));
+      }
+      const thread = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(24, pts.length * 2), 0.004, 6), null);
+      thread.userData.paint = 'solid';
+      rotor.add(shaft, thread);
+      dev.rotor = rotor;
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(R + r + 0.008, R + r + 0.008, 0.008, 28), null);
+      cap.position.set(axis.x, y1 + 0.004, axis.z); cap.userData.paint = 'solid';
+      const foot = new THREE.Mesh(new THREE.CylinderGeometry(R + r + 0.008, R + r + 0.01, 0.008, 28), null);
+      foot.position.set(axis.x, y0 - 0.004, axis.z); foot.userData.paint = 'solid';
+      B.meshes.push(barrel, rotor, cap, foot);
+      B.pillarPts.push(V(axis.x, y0 - 0.008, axis.z));
+      B.probes = [];
+      for (let y = y0 + 0.03; y <= y1; y += 0.03) B.probes.push(V(axis.x, y, axis.z));
+    },
+  },
+  elevator: {
+    label: 'Elevator', kind: 'append', defaults: { height: 0.3, exit: 'back' },
+    build(d, B, P) {
+      const H = d.opts.height, h = heading(P.psi), S = V().crossVectors(h, UP).normalize();
+      const inlet = turtle(P.p, 0.06, x => ({ psi: P.psi, phi: lerpE(P.phi, 0.03, x / 0.06) }));
+      B.paths.push({ samples: inlet, profile: 'channel', margin1: 0.02 });
+      const E = last(inlet).p, r = 0.0115;
+      addStop(B, E.clone().addScaledVector(h, 0.0145).add(V(0, 0.004, 0)), P.psi);
+      const Pk = E.clone().addScaledVector(h, 0.011 - r).add(V(0, -(RC - r), 0));
+      const exitPsi = P.psi + (d.opts.exit === 'left' ? PI / 2 : d.opts.exit === 'right' ? -PI / 2 : PI);
+      const ed = heading(exitPsi);
+      const xs = Pk.clone().add(V(0, H + (RC - r) + 0.008, 0)).addScaledVector(ed, 0.026);
+      const ex = turtle(xs, 0.1, x => ({ psi: exitPsi, phi: lerpE(0.12, d.slope, x / 0.1) }));
+      B.paths.push({ samples: ex, profile: 'channel', margin0: 0.02 });
+      B.outs.push(endPort(ex, exitPsi, d.slope));
+      const base = Pk.y - r - 0.003;
+      const dev = new ElevatorDevice({ Pk, H, v: 0.28, base, exitPos: xs.clone().add(V(0, -(RC - r) + 0.004, 0)).addScaledVector(ed, 0.006), exitDir: ed });
+      B.devices.push(dev);
+      // the cup rides a pole on the side; a pulley wheel sits on top
+      const pole = Pk.clone().addScaledVector(S, -(0.03));
+      const mast = new THREE.Mesh(new THREE.BoxGeometry(0.01, H + 0.08, 0.01), null);
+      mast.position.set(pole.x, base + (H + 0.08) / 2 - 0.01, pole.z); mast.userData.paint = 'solid';
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.003, 8, 20), MAT.metal);
+      wheel.position.set(pole.x, base + H + 0.07, pole.z); wheel.rotation.y = P.psi;
+      const cup = new THREE.Group(); cup.position.set(Pk.x, base, Pk.z); cup.rotation.y = exitPsi;
+      const tip = new THREE.Group(); tip.position.set(0.016, 0, 0); cup.add(tip);
+      const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.014, 0.018, 20, 1, true), MAT.yellow);
+      bucket.material = MAT.yellow; bucket.position.set(-0.016, 0.009, 0);
+      const bottom = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.002, 20), MAT.yellow);
+      bottom.position.set(-0.016, 0.001, 0);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.006, 0.03), MAT.metal);
+      arm.position.set(-0.016, 0.01, -0.025);
+      tip.add(bucket, bottom, arm);
+      dev.cup = cup; dev.tip = tip;
+      B.meshes.push(mast, wheel, cup);
+      B.pillarPts.push(V(pole.x, base - 0.012, pole.z));
+      B.probes = [];
+      for (let y = base + 0.04; y <= base + H + 0.06; y += 0.03) B.probes.push(V(pole.x, y, pole.z));
+    },
+  },
+  pool: {
+    label: 'Water Tub', kind: 'place', defaults: { size: 0.24, height: 0 },
+    build(d, B) {
+      const yaw = d.port.psi || 0, c = Math.cos(yaw), sn = Math.sin(yaw);
+      const W = d.opts.size, D = W * 0.7, Hh = 0.075, t = 0.004, y0 = d.port.y + d.opts.height;
+      const base = V(d.port.x, y0, d.port.z);
+      // local (x along the tub, z across) → world
+      const at = (lx, ly, lz) => V(base.x + lx * c + lz * sn, base.y + ly, base.z - lx * sn + lz * c);
+      const wall = (lx, ly, lz, hx, hy, hz, mat) => {
+        const p = at(lx, ly, lz);
+        B.colliders.push(new BoxCollider(p.x, p.y, p.z, hx, hy, hz, yaw, SURFACES.plastic));
+        const m = new THREE.Mesh(new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2), mat);
+        m.position.copy(p); m.rotation.y = yaw;
+        B.meshes.push(m);
+      };
+      wall(0, t / 2, 0, W / 2, t / 2, D / 2, null);
+      wall(0, Hh / 2, D / 2 - t / 2, W / 2, Hh / 2, t / 2, MAT.acrylic);
+      wall(0, Hh / 2, -D / 2 + t / 2, W / 2, Hh / 2, t / 2, MAT.acrylic);
+      wall(W / 2 - t / 2, Hh / 2, 0, t / 2, Hh / 2, D / 2, MAT.acrylic);
+      wall(-W / 2 + t / 2, Hh / 2, 0, t / 2, Hh / 2, D / 2, MAT.acrylic);
+      for (const [lx, lz, w, dd] of [[0, D / 2, W, 0.008], [0, -D / 2, W, 0.008], [W / 2, 0, 0.008, D], [-W / 2, 0, 0.008, D]]) {
+        const rim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.004, 0.006, dd + 0.004), null);
+        rim.position.copy(at(lx, Hh, lz)); rim.rotation.y = yaw; rim.userData.paint = 'solid';
+        B.meshes.push(rim);
+      }
+      const surf = y0 + Hh * 0.72;
+      const water = new THREE.Mesh(new THREE.BoxGeometry(W - 2 * t, surf - y0 - t, D - 2 * t), MAT.water);
+      water.position.copy(at(0, (surf - y0 + t) / 2, 0)); water.rotation.y = yaw;
+      const duck = new THREE.Group();
+      const db = new THREE.Mesh(new THREE.SphereGeometry(0.014, 14, 10), MAT.yellow); db.scale.set(1.25, 0.8, 1);
+      const dh = new THREE.Mesh(new THREE.SphereGeometry(0.009, 12, 8), MAT.yellow); dh.position.set(0.01, 0.012, 0);
+      const bk = new THREE.Mesh(new THREE.ConeGeometry(0.004, 0.008, 8), MAT.orange); bk.rotation.z = -PI / 2; bk.position.set(0.021, 0.011, 0);
+      duck.add(db, dh, bk); duck.position.copy(at(-W * 0.25, surf - y0 + 0.002, D * 0.15)); duck.rotation.y = yaw + 0.6;
+      B.meshes.push(water, duck);
+      B.water = [{ min: V(base.x - W / 2 + t, y0 + t, base.z - D / 2 + t), max: V(base.x + W / 2 - t, surf, base.z + D / 2 - t), surf, cx: base.x, cz: base.z, rc: Math.cos(yaw), rs: Math.sin(yaw) }];
+      B.probes = [];
+      for (const fx of [-0.5, 0, 0.5]) for (const fz of [-0.5, 0.5]) B.probes.push(at(fx * W, Hh * 0.5, fz * D));
+    },
+  },
+  blocks: {
+    label: 'Blocks', kind: 'place', defaults: { layers: 2, size: 2 },
+    build(d, B) {
+      const yaw = d.port.psi || 0, bs = 0.065, n = d.opts.layers, per = d.opts.size, side = per * bs, Hh = n * bs;
+      const base = V(d.port.x, d.port.y, d.port.z);
+      const holder = new THREE.Group(); holder.position.copy(base); holder.rotation.y = yaw;
+      const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789';
+      const cols = ['#ff6b6b', '#4c8dff', '#3ccf7a', '#ffd23f', '#9b6bff', '#ff9f43', '#ff77b7', '#2ec4b6'];
+      let k = Math.abs(Math.round(base.x * 97 + base.z * 61));
+      for (let i = 0; i < n; i++) for (let gx = 0; gx < per; gx++) for (let gz = 0; gz < per; gz++) {
+        k++;
+        const m = new THREE.Mesh(blockGeo(bs), blockMat(letters[k % letters.length], cols[k % cols.length]));
+        m.position.set((gx - (per - 1) / 2) * bs, i * bs + bs / 2, (gz - (per - 1) / 2) * bs);
+        m.rotation.y = ((k * 7) % 4) * PI / 2;
+        if (i === n - 1) m.userData.place = true;
+        holder.add(m);
+      }
+      B.meshes.push(holder);
+      B.colliders.push(new BoxCollider(base.x, base.y + Hh / 2, base.z, side / 2, Hh / 2, side / 2, yaw, SURFACES.wood));
+      B.blockBox = { c: V(base.x, base.y + Hh / 2, base.z), hx: side / 2, hy: Hh / 2, hz: side / 2, yaw };
+      B.top = base.y + Hh;
+    },
+  },
+  decor: {
+    label: 'Decoration', kind: 'place', defaults: { kind: 'flags', height: 0 },
+    build(d, B) {
+      const yaw = d.port.psi || 0, base = V(d.port.x, d.port.y + (d.opts.height || 0), d.port.z), kind = d.opts.kind;
+      const g = new THREE.Group(); g.position.copy(base); g.rotation.y = yaw;
+      const toWorld = (x, y, z) => V(x, y, z).applyAxisAngle(UP, yaw).add(base);
+      const pole = (x, z, hgt, r = 0.004) => {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.2, hgt, 10), null);
+        m.position.set(x, hgt / 2, z); m.userData.paint = 'solid'; g.add(m);
+        const f = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.016, 0.006, 18), null);
+        f.position.set(x, 0.003, z); f.userData.paint = 'solid'; g.add(f);
+        const w = toWorld(x, 0, z);
+        B.colliders.push(new CylinderCollider(w.x, w.z, base.y, base.y + hgt, r + 0.001, SURFACES.wood));
+        for (let y = 0.03; y < hgt; y += 0.04) B.probes.push(toWorld(x, y, z));
+      };
+      B.probes = [];
+      if (kind === 'flags') {
+        pole(-0.15, 0, 0.24); pole(0.15, 0, 0.24);
+        const cols = ['#ff6b6b', '#ffd23f', '#3ccf7a', '#4c8dff', '#9b6bff', '#ff77b7'];
+        for (let i = 0; i < 9; i++) {
+          const t = (i + 0.5) / 9, x = -0.15 + t * 0.3, y = 0.235 - Math.sin(t * PI) * 0.04;
+          const tri = new THREE.Mesh(PENNANT, new THREE.MeshStandardMaterial({ color: cols[i % cols.length], side: THREE.DoubleSide, roughness: 0.7 }));
+          tri.position.set(x, y, 0); g.add(tri);
+        }
+        const cord = new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(V(-0.15, 0.24, 0), V(0, 0.16, 0), V(0.15, 0.24, 0)), 16, 0.0012, 4), MAT.white);
+        g.add(cord);
+      } else if (kind === 'arch') {
+        const cols = ['#ff6b6b', '#ffd23f', '#3ccf7a', '#4c8dff'];
+        cols.forEach((col, i) => {
+          const band = new THREE.Mesh(new THREE.TorusGeometry(0.16 - i * 0.012, 0.0062, 8, 40, PI), new THREE.MeshStandardMaterial({ color: col, roughness: 0.75 }));
+          g.add(band);
+        });
+        for (const sx of [-1, 1]) {
+          const cl = new THREE.Mesh(new THREE.SphereGeometry(0.03, 14, 10), MAT.white); cl.scale.set(1.2, 0.7, 0.8);
+          cl.position.set(sx * 0.142, 0.012, 0); g.add(cl);
+          B.probes.push(toWorld(sx * 0.142, 0.02, 0));
+        }
+      } else if (kind === 'lamp') {
+        pole(0, 0, 0.2, 0.004);
+        const globe = new THREE.Mesh(new THREE.SphereGeometry(0.022, 18, 12), MAT.lampGlow);
+        globe.position.set(0, 0.215, 0); g.add(globe);
+        const hat = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.02, 18), null); hat.position.set(0, 0.245, 0); hat.userData.paint = 'solid'; g.add(hat);
+        B.glow = globe;
+      } else if (kind === 'pinwheel') {
+        pole(0, 0, 0.2, 0.003);
+        const dev = new PinwheelDevice();
+        const rotor = new THREE.Group(); rotor.position.set(0, 0.2, 0.008);
+        const cols = ['#ff6b6b', '#ffd23f', '#3ccf7a', '#4c8dff'];
+        for (let i = 0; i < 4; i++) {
+          const blade = new THREE.Mesh(PINBLADE, new THREE.MeshStandardMaterial({ color: cols[i], side: THREE.DoubleSide, roughness: 0.6 }));
+          blade.rotation.z = i * PI / 2; rotor.add(blade);
+        }
+        const pin = new THREE.Mesh(new THREE.SphereGeometry(0.005, 10, 8), MAT.white); rotor.add(pin);
+        dev.rotor = rotor; g.add(rotor);
+        B.devices.push(dev);
+      } else {
+        // a toy tree: stacked cones on a trunk
+        pole(0, 0, 0.08, 0.009);
+        [[0.07, 0.09, 0.075], [0.055, 0.08, 0.135], [0.038, 0.07, 0.185]].forEach(([r, hh, y]) => {
+          const cone = new THREE.Mesh(new THREE.ConeGeometry(r, hh, 16), MAT.leaf);
+          cone.position.set(0, y, 0); g.add(cone);
+          B.probes.push(toWorld(0, y, 0));
+        });
+      }
+      B.meshes.push(g);
+      B.decor = kind;
+    },
+  },
   bridge: {
     label: 'Connector', kind: 'connect', defaults: {},
     build(d, B, P) {
@@ -1191,6 +1756,7 @@ export function buildPiece(d) {
     const surf = pf === 'tube' ? SURFACES.glass : pf === 'rails' ? SURFACES.metal : (color === 'wood' || pf === 'ply') ? SURFACES.wood : SURFACES.plastic;
     const col = new SweepCollider(path.samples, prims, surf, { margin0: path.margin0, margin1: path.margin1, branchDev: path.branchDev, branchIdx: path.branchIdx, onRoll: path.onRoll });
     if (path.branchDev) path.branchDev.branches[path.branchIdx] = col;
+    if (path.bind) path.bind(col);
     B.colliders.push(col);
     const style = pf === 'tube' || pf === 'ply' || pf === 'rails' ? pf : 'solid';
     const mesh = new THREE.Mesh(sweepGeometry(path.samples, prof, path.cut), trackMaterial(color, style));
@@ -1269,8 +1835,13 @@ function ringProbes(B, c, R, y, n) {
   for (let i = 0; i < n; i++) { const a = i / n * TAU; B.probes.push(V(c.x + Math.cos(a) * R, y, c.z + Math.sin(a) * R)); }
 }
 
+function inBlock(k, p, pad) {
+  const dx = p.x - k.c.x, dz = p.z - k.c.z, c = Math.cos(k.yaw), s = Math.sin(k.yaw);
+  return Math.abs(c * dx - s * dz) < k.hx + pad && Math.abs(s * dx + c * dz) < k.hz + pad && Math.abs(p.y - k.c.y) < k.hy + pad;
+}
 // returns null when OK or a reason string
 export function validatePiece(inst, others, roomColliders) {
+  validatePiece.hit = null; // [other piece id or null, where] — for showing what it bumps into
   const pts = [];
   for (const path of inst.paths) for (let i = 0; i < path.samples.length; i += 2) pts.push(path.samples[i].p);
   const skip = [];
@@ -1279,13 +1850,15 @@ export function validatePiece(inst, others, roomColliders) {
   const near = (p, r) => skip.some(s => p.distanceTo(s) < r);
   const clearR = RC + TH - 0.001;
   for (const p of pts) {
-    if (p.y < RC + TH + 0.004) return 'Too low — it would go through the floor';
+    if (p.y < RC + TH + 0.004) { validatePiece.hit = [null, p.clone()]; return 'Too low — it would go through the floor'; }
     if (near(p, 0.05)) continue;
-    if (roomClearance(roomColliders, p.x, p.y, p.z) < clearR) return 'Bumps into furniture';
+    if (roomClearance(roomColliders, p.x, p.y, p.z) < clearR) { validatePiece.hit = [null, p.clone()]; return 'Bumps into furniture'; }
   }
   const own = new Set(inst.B.probes || []);
   const all = pts.concat(inst.B.probes || []);
   for (const o of others) {
+    if (o.B.blockBox) { const p = pts.find(q => inBlock(o.B.blockBox, q, clearR)); if (p) { validatePiece.hit = [o.d.id, p.clone()]; return 'Bumps into the blocks'; } }
+    if (inst.B.blockBox && pieceProbePoints(o).some(p => inBlock(inst.B.blockBox, p, 0.004))) return 'Overlaps another track';
     const op = pieceProbePoints(o);
     for (const p of all) {
       if (near(p, own.has(p) ? 0.11 : 0.06)) continue;
