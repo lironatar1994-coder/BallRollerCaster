@@ -26,34 +26,44 @@
 <canvas id="c" tabindex="0"></canvas>
 <div id="vignette"></div>
 
-<!-- top: camera + play -->
+<!-- top: the menu, Build | Play, undo, missions and the big Release button -->
 <header id="top">
   <button id="btnMenu" class="logo" data-i18n-title="Menu" title="Menu"><i class="burger">☰</i><span class="b1">Ball</span><span class="b2">Coaster</span></button>
-  <div class="grp seg" id="camModes" data-menu>
-    <button data-cam="orbit" class="on" data-i18n-title="Build view · 1" title="Build view · 1"><i>🛠️</i><span data-i18n>Build</span></button>
+  <div class="spacer"></div>
+  <div class="grp modeSeg" id="modeSeg">
+    <button data-mode="build" class="on" data-i18n-title="Build your coaster · 1" title="Build your coaster · 1"><i>🛠️</i><span data-i18n>Build</span></button>
+    <button data-mode="play" data-i18n-title="Play: release, watch and ride the balls · 2" title="Play: release, watch and ride the balls · 2"><i>🎢</i><span data-i18n>Play</span></button>
+  </div>
+  <div class="spacer"></div>
+  <div class="grp" id="rightGrp">
+    <button id="btnUndo" data-i18n-title="Undo · Ctrl+Z" title="Undo · Ctrl+Z"><i>↶</i></button>
+    <button id="btnRedo" data-i18n-title="Redo · Ctrl+Y" title="Redo · Ctrl+Y"><i>↷</i></button>
+    <button id="btnHist" class="mini" data-menu data-i18n-title="Undo list" title="Undo list"><i>▾</i></button>
+    <span class="gsep"></span>
+    <button id="btnExplore" class="explore" data-i18n-title="Explore coasters other players built" title="Explore coasters other players built"><i>🌍</i><span data-i18n>Explore</span></button>
+    <button id="btnChallenges" class="trophy" data-i18n-title="Missions with stars" title="Missions with stars"><i>🏆</i><span data-i18n>Challenges</span></button>
+    <button id="btnMore" data-menu data-i18n-title="More" title="More"><i>⋯</i></button>
+  </div>
+  <button id="btnRelease" class="bigGo" data-i18n-title="Release a ball from every start · Space" title="Release a ball from every start · Space"><i>▶</i><span data-i18n>Release</span></button>
+</header>
+
+<!-- play mode: the balls, time and the cameras -->
+<div id="playBar">
+  <div class="grp" id="playGrp">
+    <button id="btnBall" class="ballpick" data-menu data-i18n-title="Choose the ball" title="Choose the ball"><span class="balldot" id="ballDot"></span><span id="ballName"></span><i class="caret">▾</i></button>
+    <button id="btnAuto" data-menu data-i18n-title="Keep releasing balls" title="Keep releasing balls"><i>🔁</i><span data-i18n>Auto</span></button>
+    <button id="btnPause" data-i18n-title="Pause · P" title="Pause · P"><i>⏸</i></button>
+    <button id="btnSpeed" data-menu data-i18n-title="Time speed" title="Time speed"><i>⏱</i><span id="speedLabel">1×</span></button>
+    <button id="btnReplay" data-i18n-title="Instant replay of the last seconds · M" title="Instant replay of the last seconds · M"><i>⏪</i><span data-i18n>Replay</span></button>
+    <button id="btnClear" data-i18n-title="Remove all balls · C" title="Remove all balls · C"><i>✖</i><span data-i18n>Clear</span></button>
+  </div>
+  <div class="grp seg" id="camModes">
+    <button data-cam="orbit" class="on" data-i18n-title="Watch the whole coaster" title="Watch the whole coaster"><i>👀</i><span data-i18n>Watch</span></button>
     <button data-cam="chase" data-i18n-title="Chase a ball · 2" title="Chase a ball · 2"><i>🎥</i><span data-i18n>Chase</span></button>
     <button data-cam="pov" data-i18n-title="Ride inside a ball · 3" title="Ride inside a ball · 3"><i>🎢</i><span data-i18n>Ride</span></button>
     <button data-cam="movie" data-i18n-title="Movie camera with automatic shots · 4" title="Movie camera with automatic shots · 4"><i>🎬</i><span data-i18n>Movie</span></button>
   </div>
-  <div class="grp" id="playGrp">
-    <button id="btnRelease" class="go" data-i18n-title="Release a ball from every start · Space" title="Release a ball from every start · Space"><i>▶</i><span data-i18n>Release</span></button>
-    <button id="btnBall" class="ballpick" data-menu data-i18n-title="Choose the ball" title="Choose the ball"><span class="balldot" id="ballDot"></span><span id="ballName"></span><i class="caret">▾</i></button>
-    <button id="btnAuto" data-menu data-i18n-title="Keep releasing balls" title="Keep releasing balls"><i>🔁</i></button>
-    <button id="btnPause" data-i18n-title="Pause · P" title="Pause · P"><i>⏸</i></button>
-    <button id="btnSpeed" data-menu data-i18n-title="Time speed" title="Time speed"><i>⏱</i><span id="speedLabel">1×</span></button>
-    <button id="btnReplay" data-i18n-title="Instant replay of the last seconds · M" title="Instant replay of the last seconds · M"><i>⏪</i></button>
-    <button id="btnClear" data-i18n-title="Remove all balls · C" title="Remove all balls · C"><i>✖</i></button>
-  </div>
-  <div class="spacer"></div>
-  <div class="grp" id="rightGrp">
-    <button id="btnExplore" class="explore" data-i18n-title="Explore coasters other players built" title="Explore coasters other players built"><i>🌍</i><span data-i18n>Explore</span></button>
-    <button id="btnChallenges" class="trophy" data-i18n-title="Missions with stars" title="Missions with stars"><i>🏆</i><span data-i18n>Challenges</span></button>
-    <button id="btnUndo" data-i18n-title="Undo · Ctrl+Z" title="Undo · Ctrl+Z"><i>↶</i></button>
-    <button id="btnRedo" data-i18n-title="Redo · Ctrl+Y" title="Redo · Ctrl+Y"><i>↷</i></button>
-    <button id="btnHist" class="mini" data-menu data-i18n-title="Undo list" title="Undo list"><i>▾</i></button>
-    <button id="btnMore" data-menu data-i18n-title="More" title="More"><i>⋯</i></button>
-  </div>
-</header>
+</div>
 <div id="speedMenu" class="menu hidden"></div>
 <div id="autoMenu" class="menu hidden"></div>
 <div id="histMenu" class="menu hidden"></div>
@@ -61,12 +71,6 @@
 <div id="ballMenu" class="menu hidden"></div>
 <div id="popMenu" class="menu hidden"></div>
 <div id="moreMenu" class="menu hidden">
-  <div class="phoneRow">
-    <button data-proxy="btnAuto" data-menu><i>🔁</i><span data-i18n>Auto</span></button>
-    <button data-proxy="btnSpeed" data-menu><i>⏱</i><span data-i18n>Speed</span></button>
-    <button data-proxy="btnReplay"><i>⏪</i><span data-i18n>Replay</span></button>
-    <button data-proxy="btnClear"><i>✖</i><span data-i18n>Clear</span></button>
-  </div>
   <button id="btnRooms"><i>🏠</i><span data-i18n>Rooms</span></button>
   <button id="btnGallery"><i>🖼️</i><span data-i18n>My coasters</span></button>
   <button id="btnAlbum"><i>📸</i><span data-i18n>Photo album</span></button>
@@ -105,11 +109,10 @@
 <div id="mission" class="hidden"></div>
 
 <!-- bottom: the build dock -->
+<nav id="toolRail"><div id="dockTools"></div></nav>
 <div id="dock">
   <div id="settings"></div>
   <div id="dockMain">
-    <div id="dockTools"></div>
-    <div class="dockSep"></div>
     <div id="dockRight">
       <div id="dockTabs"></div>
       <div id="dockPieces"></div>
@@ -156,13 +159,14 @@
 
 <!-- camera pad -->
 <div id="camPad">
-  <button id="camFit" data-i18n-title="Show the whole coaster · Z" title="Show the whole coaster · Z">⤢</button>
-  <button id="camTurn" data-i18n-title="Turn the view: from above, from the side, along the track · Y" title="Turn the view: from above, from the side, along the track · Y">👁</button>
-  <button id="camFocus" data-i18n-title="Focus: stay close to what you are building · O" title="Focus: stay close to what you are building · O">🎯</button>
+  <button id="camFit" class="cpReset" data-i18n-title="Show the whole coaster · Z" title="Show the whole coaster · Z"><i>⟲</i><small data-i18n>Reset view</small></button>
   <button id="camIn" data-i18n-title="Zoom in" title="Zoom in">＋</button>
   <button id="camOut" data-i18n-title="Zoom out" title="Zoom out">−</button>
-  <button id="camViews" data-menu data-i18n-title="Saved views · Shift+5–8 save, 5–8 go" title="Saved views · Shift+5–8 save, 5–8 go">📌</button>
-  <button id="camPip" data-i18n-title="Ball camera in the corner" title="Ball camera in the corner">🎥</button>
+  <span class="cpSep"></span>
+  <button class="cpMore" id="camTurn" data-i18n-title="Turn the view: from above, from the side, along the track · Y" title="Turn the view: from above, from the side, along the track · Y">👁</button>
+  <button class="cpMore" id="camFocus" data-i18n-title="Focus: stay close to what you are building · O" title="Focus: stay close to what you are building · O">🎯</button>
+  <button class="cpMore" id="camViews" data-menu data-i18n-title="Saved views · Shift+5–8 save, 5–8 go" title="Saved views · Shift+5–8 save, 5–8 go">📌</button>
+  <button class="cpMore" id="camPip" data-i18n-title="Ball camera in the corner" title="Ball camera in the corner">🎥</button>
 </div>
 
 <!-- floating editor for the selected piece -->

@@ -286,14 +286,11 @@ body[dir="rtl"] .piece .kb { right: auto; left: 5px; }
 body[dir="rtl"] .piece .pl { left: auto; right: 5px; }
 
 /* ---------------------------------------------------------------- responsive */
-/* cameras: only the active one shows its name */
-#camModes button:not(.on) span { display: none; }
 @media (max-width: 1250px) {
   #rightGrp > #btnChallenges span, #ballName { display: none; }
   .grp > button { padding: 7px 9px; }
 }
 @media (max-width: 1100px) {
-  #camModes span { display: none; }
   .logo { font-size: 19px; }
   .piece { width: 72px; }
 }
@@ -511,13 +508,10 @@ body.dock-folded #dockMain { padding: 5px 8px; }
 
 /* ---------------------------------------------------------------- phones: the 3D view gets the screen */
 @media (max-width: 760px) {
-  /* top: cameras + challenges/undo/more on one row, play controls on a slim second row */
-  #top { flex-wrap: wrap; gap: 4px; top: 4px; left: 4px; right: 4px; }
-  #top .spacer { display: none; }
-  #camModes { order: 1; }
-  #rightGrp { order: 2; margin-inline-start: auto; }
-  #playGrp { order: 3; width: 100%; justify-content: space-between; padding: 2px 4px; }
-  #btnReplay, #btnClear, #speedLabel, #ballName, #btnHist, #rightGrp > #btnChallenges span, #camModes button span { display: none !important; }
+  /* top: menu, Build | Play, undo, missions, more and Release, all on one row */
+  #top { gap: 4px; top: 4px; left: 4px; right: 4px; }
+  #top .spacer:first-of-type { display: none; }
+  #ballName, #btnHist, #btnRedo, #rightGrp > #btnChallenges span, #rightGrp .gsep { display: none !important; }
   .grp { padding: 2px; border-radius: 14px; }
   .grp > button { padding: 6px 8px; font-size: 14px; }
   .grp > button i { font-size: 15px; }
@@ -616,29 +610,13 @@ body.photo #vignette { background: radial-gradient(ellipse 75% 70% at 50% 46%, t
 #selPop .row .swatch.pick { width: 24px; height: 24px; }
 #selPop .row .chip.pick { display: flex; align-items: center; gap: 4px; }
 
-/* ---------------------------------------------------------------- phones: one slim top row */
-.phoneRow { display: none; }
-body.phone .phoneRow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid #eee; }
-body.phone .phoneRow button { flex-direction: column; gap: 2px; padding: 7px 2px; font-size: 12px; text-align: center; background: #f6f4fb; }
-body.phone .phoneRow button i { font-style: normal; font-size: 17px; }
-body.phone #moreMenu .phoneRow button.on { background: var(--on); }
-body.phone #camModes button:not(.on) { display: none; }
-body.phone #camModes button span { display: none; }
-body.phone #camModes button.on::after { content: '▾'; font-size: 10px; opacity: 0.55; margin-inline-start: -3px; }
-body.phone #btnAuto, body.phone #btnSpeed, body.phone #btnReplay, body.phone #btnClear, body.phone #btnHist { display: none !important; }
 body.phone #camIn, body.phone #camOut { display: none; }
-@media (max-width: 760px) {
-  #top { flex-wrap: nowrap; }
-  #camModes, #playGrp, #rightGrp { order: 0; }
-  #playGrp { width: auto; justify-content: flex-start; padding: 2px; }
-}
 /* riding on a phone: one slim bar under the top row */
 body.phone #rideBar { top: calc(var(--topH, 50px) + 8px); white-space: nowrap; max-width: calc(100vw - 12px); font-size: 13px; }
 body.phone #rideBar button { padding: 5px 9px; }
 body.phone #rideName { min-width: 0; max-width: 38vw; overflow: hidden; text-overflow: ellipsis; padding: 0 2px; }
 body.phone.riding #predPill { display: none; }
 @media (max-width: 380px) {
-  #btnRelease span { display: none; }
   .grp > button { padding: 6px 7px; }
 }
 
@@ -992,3 +970,109 @@ body.phone.visiting #predPill { display: none; }
 .logo, .mmLogo { direction: ltr; }
 .mmCard b, .mmCard small, .exName, .exBy, #vbName, #vbBy, .pubRow b, .gcard b { unicode-bidi: plaintext; }
 body[dir="rtl"] .exName, body[dir="rtl"] .mmCard b, body[dir="rtl"] .pubRow b { text-align: right; }
+
+/* ================================================================ the layout: Build | Play, a tool rail, the piece panel */
+/* top bar: the menu, the two modes in the middle, undo + missions + more, and one big Release button */
+#top { gap: 10px; }
+.modeSeg { padding: 4px; gap: 4px; }
+.modeSeg > button { padding: 8px 18px; font-size: 16px; font-weight: 600; border-radius: 12px; color: #5b5f78; }
+.modeSeg > button i { font-size: 17px; }
+.modeSeg > button[data-mode="build"].on { background: #ffe0d4; color: #b8462a; }
+.modeSeg > button[data-mode="play"].on { background: #d6f4e4; color: #1c7a4a; }
+.gsep { width: 1px; align-self: stretch; margin: 5px 3px; background: var(--line); }
+#btnRelease.bigGo { display: flex; align-items: center; gap: 8px; padding: 10px 22px; border-radius: 16px; font-size: 18px; font-weight: 700; color: #fff; white-space: nowrap; background: linear-gradient(135deg, #3fd486, #23a960); box-shadow: 0 8px 20px rgba(47, 191, 113, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.12); transition: transform .08s, box-shadow .15s; }
+#btnRelease.bigGo i { font-style: normal; font-size: 15px; }
+#btnRelease.bigGo:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(47, 191, 113, 0.42), inset 0 -3px 0 rgba(0, 0, 0, 0.12); }
+#btnRelease.bigGo:active { transform: scale(0.96); }
+
+/* Play: the balls, time and cameras at the bottom; the building things step aside */
+#playBar { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5; display: none; align-items: center; gap: 10px; max-width: calc(100vw - 20px); }
+body.playmode #playBar { display: flex; }
+body.playmode #dock, body.playmode #toolRail, body.playmode #selPop, body.playmode #buildPad, body.playmode #hint { display: none !important; }
+body.replaying #playBar, body.photo #playBar { display: none !important; }
+#playBar .grp { padding: 5px; }
+#playBar .grp > button { padding: 9px 13px; }
+#camModes > button.on { background: var(--on); }
+#playBar .ballpick .balldot { width: 24px; height: 24px; }
+
+/* the tools: a rail on the left, each with its name */
+#toolRail { position: fixed; left: 10px; top: 50%; transform: translateY(-50%); z-index: 5; padding: 7px; background: var(--panel); backdrop-filter: blur(8px); border-radius: 22px; box-shadow: var(--shadow); }
+#toolRail #dockTools { display: flex; flex-direction: column; gap: 3px; }
+#toolRail .tool { width: 72px; padding: 8px 4px 7px; border-radius: 15px; font-size: 12.5px; font-weight: 600; gap: 3px; line-height: 1.15; text-align: center; }
+#toolRail .tool svg { width: 34px; height: 27px; }
+#toolRail .tool.on { background: #e3eeff; color: #1f4fa8; box-shadow: inset 0 0 0 2px #8db4ff; }
+body.phone #toolRail, body.riding #toolRail, body.replaying #toolRail, body.photo #toolRail { display: none !important; }
+@media (max-height: 720px) { #toolRail .tool { padding: 5px 3px 4px; font-size: 11.5px; } #toolRail .tool svg { width: 28px; height: 22px; } }
+body:not(.phone):not(.playmode) #mission, body:not(.phone):not(.playmode) #news, body[dir="ltr"]:not(.phone):not(.playmode) #visitBar { left: 98px; }
+
+/* the pieces: bigger cards, now that the tools have their own place */
+@media (min-width: 761px) {
+  #dockMain { padding: 8px 10px; border-radius: 24px; }
+  .piece { width: 90px; padding: 8px 4px 6px; border-radius: 16px; font-size: 12.5px; }
+  .piece svg { width: 52px; height: 39px; }
+}
+@media (min-width: 761px) and (max-width: 1100px) { .piece { width: 80px; } .piece svg { width: 46px; height: 35px; } }
+
+/* the selected piece: a panel on the right, always in the same place */
+#selPop.panel { left: auto; right: 10px; top: calc(var(--topH, 56px) + 10px); transform: none; width: 292px; min-width: 0; max-width: none; max-height: calc(100vh - var(--topH, 56px) - 190px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 14px 16px 16px; gap: 10px; border-radius: 22px; font-size: 14px; box-shadow: 0 16px 40px rgba(40, 40, 80, 0.2); }
+#selPop.panel::after { display: none; }
+body.side-open #selPop.panel { right: 320px; }
+#selPop.panel .hd { font-size: 19px; gap: 4px; }
+#selPop.panel .hd > svg { display: none; }
+#selPop.panel .hd > span { flex: 1; min-width: 0; }
+#selPop.panel .hd .walk, #selPop.panel .hd .x { width: 30px; height: 30px; margin: 0; border-radius: 50%; background: #f3f0ea; font-size: 12px; }
+#selPop.panel .hd .walk:hover, #selPop.panel .hd .x:hover { background: #ebe6dd; }
+#selPop .pv { display: none; }
+#selPop.panel .pv { display: grid; place-items: center; height: 72px; flex: 0 0 auto; border-radius: 16px; background: linear-gradient(135deg, #fff4e6, #eaf2ff); }
+#selPop.panel .pv svg { width: 92px; height: 66px; }
+#selPop.panel .row { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 6px; }
+#selPop.panel .row > .lbl { font-size: 11px; color: #5b5f78; min-width: 0; }
+#selPop.panel .row > .chips { gap: 4px; }
+#selPop.panel .chip { padding: 4px 10px; font-size: 13px; }
+#selPop.panel .swatch { width: 26px; height: 26px; }
+/* the buttons stay in sight at the bottom, however long the panel */
+#selPop.panel .ft { position: sticky; bottom: -16px; z-index: 1; flex-wrap: wrap; gap: 6px; margin: 2px -16px -16px; padding: 10px 16px 14px; background: var(--panel-solid); border-top: 1px solid var(--line); }
+#selPop.panel .ft button { flex: 1 1 calc(50% - 6px); padding: 9px 8px; border-radius: 12px; }
+#selPop.panel .note { font-size: 12px; }
+body.sel-panel #predPill { display: none; }
+body.sel-panel #camPad .cpMore, body.sel-panel #camPad .cpSep { display: none; }
+/* the last test run, in the panel */
+.lastRun { display: flex; flex-direction: column; gap: 5px; flex: 0 0 auto; padding: 8px 12px; border-radius: 14px; background: #f4f2ee; }
+.lastRun.ok { background: #e8f7ee; }
+.lastRun.bad { background: #ffeceb; }
+.lastRun .lrH { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--muted); }
+.lastRun .lrT { font-size: 15px; font-weight: 600; }
+.lastRun.ok .lrT { color: #1c7a4a; }
+.lastRun.bad .lrT { color: #c0392b; }
+.lastRun .lrB { display: flex; gap: 6px; }
+.lastRun .lrB button { flex: 1; padding: 8px; border-radius: 10px; background: #fff; font-weight: 600; font-size: 13px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.lastRun .lrB button:hover { background: #fff7ef; }
+#selPop.sheet .lastRun { display: none; }
+
+/* the camera corner: Reset view first, by name */
+#camPad { align-items: center; padding: 5px; gap: 3px; border-radius: 18px; }
+#camPad button { width: 40px; height: 36px; }
+#camPad .cpReset { width: 60px; height: auto; padding: 7px 2px 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; border-radius: 14px; background: #e3eeff; color: #1f4fa8; }
+#camPad .cpReset i { font-style: normal; font-size: 20px; line-height: 1; }
+#camPad .cpReset small { font-size: 10.5px; font-weight: 600; line-height: 1.1; text-align: center; }
+#camPad .cpReset:hover { background: #d3e4ff; }
+.cpSep { width: 70%; height: 1px; margin: 2px 0; background: var(--line); }
+
+/* phones: the same order, folded small */
+@media (max-width: 760px) {
+  .modeSeg { padding: 2px; gap: 2px; }
+  .modeSeg > button { padding: 6px 9px; font-size: 14px; }
+  .modeSeg > button:not(.on) span { display: none; }
+  #btnRelease.bigGo { padding: 7px 14px; border-radius: 14px; font-size: 16px; }
+  #btnRelease.bigGo span { display: none; }
+  #playBar { left: 4px; right: 4px; bottom: 4px; transform: none; max-width: none; flex-direction: column; align-items: stretch; gap: 4px; }
+  #playBar .grp { justify-content: space-between; padding: 3px; }
+  #playBar .grp > button { flex: 1; justify-content: center; padding: 8px 6px; }
+  #playGrp > button > span:not(.balldot):not(#speedLabel) { display: none; }
+  #camModes > button { flex-direction: column; gap: 1px; font-size: 11.5px; padding: 5px 4px; }
+  #camPad .cpReset { width: 40px; padding: 6px 2px; }
+  #camPad .cpReset small { display: none; }
+}
+#selPop.panel > * { flex-shrink: 0; }
+/* a narrower computer: the play bar keeps its icons, the cameras keep their names */
+@media (max-width: 1150px) { #playGrp > button > span:not(.balldot):not(#speedLabel) { display: none; } #playBar .grp > button { padding: 9px 11px; } }

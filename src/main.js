@@ -873,7 +873,7 @@ function setHighlight(group, on, color = '#ff9a3c', k = 0.35) {
 function renderSelPop() {
   const el = $('selPop');
   const d = S.selected && pieces.find(p => p.id === S.selected);
-  if (!d || S.cam !== 'orbit' || S.hover || S.photo || S.move || S.replay) { el.classList.add('hidden'); document.body.classList.remove('sel-sheet', 'sel-aside'); return; }
+  if (!d || S.cam !== 'orbit' || S.hover || S.photo || S.move || S.replay || S.mode === 'play') { el.classList.add('hidden'); document.body.classList.remove('sel-sheet', 'sel-aside', 'sel-panel'); return; }
   el.classList.remove('hidden');
   placeSelPop(el);
   el.innerHTML = '';
@@ -886,6 +886,10 @@ function renderSelPop() {
   const x = document.createElement('button'); x.className = 'x'; x.textContent = '✕'; x.title = 'Esc';
   x.onclick = () => select(null);
   hd.appendChild(x); el.appendChild(hd);
+  // a big picture of the piece (in the panel)
+  const pv = document.createElement('div'); pv.className = 'pv'; pv.innerHTML = ICONS[pieceIcon(d)] || ''; el.appendChild(pv);
+  // how the last test run went, with a way straight to the trouble
+  if (S.predict && pred.runs.length) { const lr = document.createElement('div'); lr.className = 'lastRun'; el.appendChild(lr); fillLastRun(lr); }
   const info = insight.pieceInfo(d.id);
   if (info) { const n = document.createElement('div'); n.className = 'note'; n.textContent = info; el.appendChild(n); }
   const row = (label, build) => { const r = document.createElement('div'); r.className = 'row'; r.innerHTML = `<span class="lbl">${L(label)}</span>`; const c = document.createElement('div'); c.className = 'chips'; build(c); r.appendChild(c); el.appendChild(r); };
@@ -933,7 +937,7 @@ function renderSelPop() {
       const cc = document.createElement('div'); cc.className = 'chips pal';
       chips(cc, Object.keys(COLORS).map(k => [k, '', `background:${COLORS[k]}`]), v => v === d.color, v => { closeMenus(); tweakSelected({ geom: false, apply: nd => { nd.color = v; } }); }, 'swatch');
       menu.appendChild(cc);
-    }, !!selMode());
+    });
     c.appendChild(sw);
     if (!TRACK_TYPES.includes(d.type)) return;
     const st = document.createElement('button');
@@ -942,7 +946,7 @@ function renderSelPop() {
     st.onclick = () => openMenu($('popMenu'), st, menu => {
       menu.innerHTML = STYLE_ITEMS.map(([v, l]) => `<button data-style="${v}" class="${v === d.style ? 'on' : ''}">${L(l)}</button>`).join('');
       menu.onclick = (e) => { const b = e.target.closest('[data-style]'); if (!b) return; closeMenus(); tweakSelected({ geom: false, apply: nd => { nd.style = b.dataset.style; } }); };
-    }, !!selMode());
+    });
     c.appendChild(st);
   });
   if (d.locked) { const n = document.createElement('div'); n.className = 'note'; n.textContent = '🔒 ' + L('Locked in this challenge'); el.appendChild(n); }
@@ -958,9 +962,44 @@ function renderSelPop() {
   const own = openOuts.find(o => o.id === d.id);
   if (own && own.key !== S.active) btn('➕ Build from here', '', () => { S.active = own.key; S.insert = null; select(null); drawMarkers(); renderDock(); sound.click(); });
   if (chainLinks().kids.has(d.id)) btn('⤵ Insert after', '', () => startInsert(d.id));
+  if (!place && !d.locked && activePort()) btn('📋 Duplicate', '', () => duplicatePiece(d));
   if (!d.locked) btn('🗑 Delete', 'del', () => deletePiece(d.id));
   el.appendChild(ft);
   if (HANDLE[d.type] && !d.locked && store.get('bc.handleTip', 0) < 4) { const n = document.createElement('div'); n.className = 'note'; n.textContent = L(touchScreen() ? 'Tip: drag the orange handle · hold a piece for more' : 'Tip: drag the orange handle · Shift = slope · right-click for more'); el.appendChild(n); }
+}
+// the test run in the piece panel: how the ball does, and when it doesn't make it, where and a fix
+const TROUBLE = ['floor', 'lost', 'stuck'];
+function fillLastRun(lr) {
+  const R = pred.runs.find(r => r.done && TROUBLE.includes(r.outcome)) || pred.runs.find(r => r.done) || pred.runs[0];
+  if (!R) return;
+  const o = R.done ? OUTCOME[R.outcome] : null, bad = R.done && TROUBLE.includes(R.outcome);
+  const html = `<span class="lrH">${L('Test run')}</span><span class="lrT">${o ? o.icon : '⏳'} ${esc(o ? o.title(R) : L('Simulating…'))}</span>` +
+    (bad ? `<span class="lrB"><button data-lr="show">📍 ${L('Show me')}</button><button data-lr="fix">🔧 ${L('Fix it')}</button></span>` : '');
+  lr.className = 'lastRun' + (bad ? ' bad' : R.done && R.outcome === 'goal' ? ' ok' : '');
+  if (lr.dataset.k !== html) { lr.innerHTML = html; lr.dataset.k = html; }
+  lr.onclick = (e) => {
+    const b = e.target.closest('[data-lr]');
+    if (!b) return;
+    sound.click();
+    const T = pred.runs.find(r => r.trouble);
+    if (b.dataset.lr === 'show' && T) camAssist.frame(T.trouble.clone(), 0.15);
+    if (b.dataset.lr === 'fix') runFixIt();
+  };
+}
+function renderLastRun() { const lr = document.querySelector('#selPop .lastRun'); if (lr) fillLastRun(lr); }
+// the same piece again, on the glowing ring
+function duplicatePiece(d) {
+  const ap = activePort();
+  if (!ap) { toast(L('Click a yellow ring to build from there'), true); sound.error(); return; }
+  if (!canUse(toolKeyOf(d))) { toast(L('None of those left in the parts box'), true); sound.error(); return; }
+  const nd = JSON.parse(JSON.stringify(d));
+  delete nd.locked; nd.id = S.nextId; nd.port = portToData(ap.port);
+  const inst = buildPiece(nd), reason = validatePiece(inst, [...insts.values()], room.colliders);
+  disposeGroup(inst.group);
+  if (reason) { toast(L(reason), true); sound.error(); showBump(false); return; }
+  select(null);
+  commit(nd);
+  toast('📋 ' + L('A copy went onto the ring'));
 }
 // the music box's song: four lanes (C, E, G, high C) by sixteen steps; tap a step to add or take away a peg
 const LANE_COLORS = ['#ff5d5d', '#ffd23f', '#3ccf7a', '#4c8dff'];
@@ -978,13 +1017,13 @@ function songGrid(d) {
 }
 // on a phone the editor takes the dock's place as a sheet (or sits on the right when the phone lies on its side)
 const touchScreen = () => matchMedia('(pointer: coarse)').matches;
-const selMode = () => !phone() ? '' : window.innerHeight <= 520 ? 'aside' : 'sheet';
+const selMode = () => !phone() ? 'panel' : window.innerHeight <= 520 ? 'aside' : 'sheet';
 function placeSelPop(el) {
   const mode = selMode();
   if (mode === 'sheet' && el.parentElement !== $('dock')) $('dock').prepend(el);
   if (mode !== 'sheet' && el.parentElement !== document.body) document.body.appendChild(el);
-  el.classList.toggle('sheet', mode === 'sheet'); el.classList.toggle('aside', mode === 'aside');
-  document.body.classList.toggle('sel-sheet', mode === 'sheet'); document.body.classList.toggle('sel-aside', mode === 'aside');
+  el.classList.toggle('sheet', mode === 'sheet'); el.classList.toggle('aside', mode === 'aside'); el.classList.toggle('panel', mode === 'panel');
+  document.body.classList.toggle('sel-sheet', mode === 'sheet'); document.body.classList.toggle('sel-aside', mode === 'aside'); document.body.classList.toggle('sel-panel', mode === 'panel');
   if (mode) el.style.left = el.style.top = el.style.visibility = '';
 }
 // ...and the chosen piece slides into the part of the screen the editor leaves free
@@ -1055,7 +1094,7 @@ $('ringEdge').onclick = () => {
 const _v = V(), _v2 = V();
 function positionSelPop() {
   const el = $('selPop');
-  if (el.classList.contains('hidden') || el.classList.contains('sheet') || el.classList.contains('aside')) return;
+  if (el.classList.contains('hidden') || el.classList.contains('sheet') || el.classList.contains('aside') || el.classList.contains('panel')) return;
   _v.copy(S.selAnchor).project(camera);
   const r = canvas.getBoundingClientRect();
   let x = r.left + (_v.x + 1) / 2 * r.width, y = r.top + (1 - _v.y) / 2 * r.height;
@@ -1442,6 +1481,7 @@ function renderPred() {
     pill = `<span class="pdot" style="background:${o ? o.bg : '#9aa0b5'}"></span>${pill}`;
   }
   if (pill !== predPillHTML) { $('predPill').innerHTML = pill; predPillHTML = pill; }
+  renderLastRun();
 }
 let predPillHTML = '';
 $('predBody').addEventListener('click', (e) => {
@@ -1486,11 +1526,35 @@ function setCam(mode) {
   document.querySelectorAll('#camModes button').forEach(b => b.classList.toggle('on', b.dataset.cam === mode));
   if (mode !== 'orbit') { S.hover = null; clearGhost(); }
   renderSelPop();
+  if (mode !== 'orbit' && S.mode !== 'play') setMode('play', { quiet: true });
 }
 // a phone held upright sees a narrow slice of the room: the build view opens up a little wider
 const orbitFov = () => camera.aspect >= 1 ? 55 : Math.min(72, 55 + (1 - camera.aspect) * 36);
+// ---------------------------------------------------------------- Build and Play
+// Build: the tools, the pieces and the piece panel. Play: those step aside for the balls, the time
+// controls and the cameras. The big Release button works in both.
+S.mode = 'build';
+function setMode(m, opts = {}) {
+  if (m === S.mode) return;
+  S.mode = m;
+  document.body.classList.toggle('playmode', m === 'play');
+  document.querySelectorAll('#modeSeg [data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  if (m === 'build') { if (S.replay) stopReplay(); if (S.cam !== 'orbit') setCam('orbit'); }
+  else {
+    if (S.move) endMove(false);
+    select(null); S.multi.clear(); renderMulti(); clearGhost(); S.hover = null; S.connectFrom = null;
+    if (S.tool !== 'select') { S.tool = 'select'; renderDock(); renderSettings(); }
+    controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+    // straight into the fun: a ball rolls if none is
+    if (!opts.quiet && !liveBalls().length) releaseAll();
+  }
+  refreshVisibility(); updateGhost(); renderSelPop(); drawMarkers();
+  camAssist.measure();
+  sound.click();
+}
+document.querySelectorAll('#modeSeg [data-mode]').forEach(b => b.addEventListener('click', () => { sound.ensure(); setMode(b.dataset.mode); }));
 function refreshVisibility() {
-  const building = S.cam === 'orbit' && !S.photo && !S.replay;
+  const building = S.cam === 'orbit' && !S.photo && !S.replay && S.mode !== 'play';
   markerGroup.visible = ghostGroup.visible = building && !S.move;
   if (S.move) ghostGroup.visible = true;
   predGroup.visible = S.cam !== 'pov' && !S.photo && !S.replay;
@@ -1819,6 +1883,7 @@ function startChallenge(i, custom) {
   // custom: a puzzle a friend sent (play.js)
   const def = custom || (i < 0 ? dailyChallenge() : CHALLENGES[i]);
   if (S.visit) endVisit();
+  setMode('build');
   const want = def.daily ? 'kids' : (def.room || 'kids');
   if (want !== room.kind) switchRoom(want, { keepChallenge: true });
   if (!S.challenge) S.sandbox = { pieces: JSON.parse(JSON.stringify(pieces.filter(p => !p.locked))), g: world.g };
@@ -1961,6 +2026,10 @@ $('dock').addEventListener('mouseover', (e) => {
   if (b && !k) setHint(`${L(TOOLS[b.dataset.tool].label)} — ${L(TOOLS[b.dataset.tool].desc)}`);
 });
 $('dock').addEventListener('mouseleave', () => { if (drag) return; S.hover = null; updateGhost(); });
+// the tools have their own rail on the left (on a phone they are a tab in the dock)
+$('toolRail').addEventListener('click', (e) => { const b = e.target.closest('[data-tool]'); if (b) pickTool(b.dataset.tool); });
+$('toolRail').addEventListener('mouseover', (e) => { const b = e.target.closest('[data-tool]'); if (b) setHint(`${L(TOOLS[b.dataset.tool].label)} — ${L(TOOLS[b.dataset.tool].desc)}`); });
+$('toolRail').addEventListener('mouseleave', () => updateGhost());
 function pickTool(k) {
   const t = TOOLS[k];
   sound.ensure();
@@ -2091,7 +2160,6 @@ function renderTop() {
   $('ballName').textContent = L(cur.name);
   $('speedLabel').textContent = SPEEDS.find(s => s[0] === S.timeScale)[1];
   $('btnSpeed').classList.toggle('on', S.timeScale !== 1);
-  document.querySelector('[data-proxy="btnSpeed"]').classList.toggle('on', S.timeScale !== 1);
   $('langLabel').textContent = getLang() === 'he' ? 'English' : 'עברית';
 }
 // looks for the marbles: only the paint changes, never the physics. Stickers unlock the fancy ones.
@@ -2128,6 +2196,7 @@ function openMenu(menu, anchor, fill, up) {
   if (fill) fill(menu);
   menu.classList.remove('hidden');
   const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
+  if (up === undefined) up = r.top > window.innerHeight * 0.55;
   menu.style.left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8) + 'px';
   menu.style.top = Math.max(8, Math.min(up ? r.top - h - 8 : r.bottom + 8, window.innerHeight - h - 8)) + 'px';
 }
@@ -2252,6 +2321,7 @@ canvas.addEventListener('pointermove', (e) => {
     camState.pitchOff = THREE.MathUtils.clamp(camState.pitchOff, -1.2, 1.2);
   }
   if (S.cam !== 'orbit' || S.replay) return;
+  if (S.mode === 'play') { canvas.style.cursor = pickBall() ? 'pointer' : ''; return; }
   if (S.move) { const s = pickSurface(); if (s) moveTo(s.point); return; }
   const t = TOOLS[S.tool];
   if (t.type === 'place') { lastSurf = pickSurface(); if (lastSurf) refreshPlaceGhost(); else clearGhost(); }
@@ -2289,6 +2359,7 @@ function handleClick(ev) {
     if (inst && inst.spawn) { S.follow = spawnBall(inst.spawn.clone()); sound.release(); }
     return;
   }
+  if (S.mode === 'play') { const b = pickBall(); if (b) { S.follow = b; toast(L('Following ball #{0}', b.id)); } return; }
   if (S.tool === 'bridge') {
     if (marker && marker.kind === 'out') { S.connectFrom = marker.key; S.active = marker.key; drawMarkers(); updateGhost(); sound.click(); return; }
     if (marker && marker.kind === 'in' && S.connectFrom) {
@@ -2357,8 +2428,8 @@ window.addEventListener('keydown', (e) => {
     case ',': stepSelection(-1); return;
     case '.': stepSelection(1); return;
     case ' ': e.preventDefault(); if (S.replay) { S.replay.playing = !S.replay.playing; renderReplayBar(); } else releaseAll(); break;
-    case '1': setCam('orbit'); break;
-    case '2': setCam('chase'); break;
+    case '1': setMode('build'); break;
+    case '2': if (S.mode === 'play' && S.cam === 'orbit') setCam('chase'); else setMode('play'); break;
     case '3': setCam('pov'); break;
     case '4': setCam('movie'); break;
     case 'Tab': e.preventDefault(); cycleBall(1); break;
@@ -2369,6 +2440,7 @@ window.addEventListener('keydown', (e) => {
       if (S.photo) { setPhoto(false); break; }
       if (S.move) { endMove(false); break; }
       if (tutor.on) { endTour(); break; }
+      if (S.mode === 'play') { setMode('build'); break; }
       if (S.multi.size) { S.multi.clear(); renderMulti(); }
       S.connectFrom = null; S.insert = null; S.tool = 'select'; select(null); renderDock(); renderSettings(); drawMarkers(); updateGhost();
       if (S.cam !== 'orbit') setCam('orbit');
@@ -2420,14 +2492,6 @@ function togglePause() { S.paused = !S.paused; $('btnPause').classList.toggle('o
 // ================================================================ top bar, bars & menus
 document.querySelectorAll('#camModes button').forEach(b => b.addEventListener('click', () => {
   sound.ensure();
-  // on a phone only the current view shows; tapping it lists the others
-  if (phone()) {
-    openMenu($('popMenu'), $('camModes'), m => {
-      m.innerHTML = [...document.querySelectorAll('#camModes button')].map(c => `<button data-pick="${c.dataset.cam}" class="${c.classList.contains('on') ? 'on' : ''}">${c.innerHTML}</button>`).join('');
-      m.onclick = (e) => { const p = e.target.closest('[data-pick]'); if (p) { closeMenus(); setCam(p.dataset.pick); } };
-    });
-    return;
-  }
   setCam(b.dataset.cam);
 }));
 $('btnRelease').onclick = () => releaseAll();
@@ -2459,7 +2523,7 @@ $('btnChallenges').onclick = openChallenges;
 $('btnHelp').onclick = () => { closeMenus(); $('help').classList.remove('hidden'); };
 $('ridePrev').onclick = () => cycleBall(-1);
 $('rideNext').onclick = () => cycleBall(1);
-$('rideExit').onclick = () => setCam('orbit');
+$('rideExit').onclick = () => setMode('build');
 $('replayPlay').onclick = () => { S.replay.playing = !S.replay.playing; renderReplayBar(); };
 $('replayExit').onclick = stopReplay;
 document.querySelectorAll('#replayBar [data-rs]').forEach(b => b.addEventListener('click', () => { S.replay.speed = +b.dataset.rs; renderReplayBar(); }));
@@ -4221,10 +4285,10 @@ function resize() {
 window.addEventListener('resize', resize);
 // overlays sit just above the dock and just below the top bar, whatever their size
 const dockObserver = new ResizeObserver(() => {
-  document.documentElement.style.setProperty('--dockH', Math.round($('dock').getBoundingClientRect().height) + 'px');
+  document.documentElement.style.setProperty('--dockH', Math.round(Math.max($('dock').getBoundingClientRect().height, $('playBar').getBoundingClientRect().height)) + 'px');
   document.documentElement.style.setProperty('--topH', Math.round($('top').getBoundingClientRect().bottom) + 'px');
 });
-for (const id of ['dock', 'top']) dockObserver.observe($(id));
+for (const id of ['dock', 'top', 'playBar']) dockObserver.observe($(id));
 if (store.get('bc.fold', false)) document.body.classList.add('dock-folded');
 
 // ================================================================ boot

@@ -211,6 +211,11 @@ const HE = {
   'Lost? Press ⤢ to see the whole coaster.': 'הלכתם לאיבוד? לחצו ⤢ כדי לראות את כל המסילה.',
   'Double-click': 'לחיצה כפולה', 'look there': 'להסתכל לשם', 'turn the view': 'לסובב את המבט', 'focus': 'פוקוס',
   'one finger turns · two fingers zoom and slide · double-tap looks there': 'אצבע אחת מסובבת · שתי אצבעות לזום ולהזזה · הקשה כפולה מסתכלת לשם',
+  // Build | Play, the tool rail, the piece panel
+  'Play': 'משחק', 'Watch': 'צפייה', 'Build your coaster · 1': 'לבנות את המסילה · 1',
+  'Play: release, watch and ride the balls · 2': 'משחק: לשחרר, לצפות ולנסוע בכדורים · 2',
+  'Watch the whole coaster': 'לצפות בכל המסילה', 'Reset view': 'איפוס מבט',
+  'Test run': 'ריצת ניסיון', 'Show me': 'הראו לי', 'Fix it': 'תקנו', '📋 Duplicate': '📋 שכפול', 'A copy went onto the ring': 'עותק נוסף על הטבעת',
   // the coaster library: menu, Explore, publishing, trying
   'Explore coasters other players built': 'מסילות ששחקנים אחרים בנו',
   'Explore': 'גלריה',

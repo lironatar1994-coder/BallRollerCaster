@@ -28,12 +28,15 @@ export function createCameraAssist(app) {
     const top = shown($('top'));
     if (top) t = Math.max(t, top.bottom);
     // whatever sits along the bottom: the dock (with a sheet in it), the build pad
-    for (const id of ['dock', 'buildPad']) {
+    for (const id of ['dock', 'buildPad', 'playBar']) {
       const q = shown($(id));
       if (q && q.bottom > H * 0.7 && q.top > t) b = Math.min(b, q.top);
     }
     const sel = $('selPop');
-    if (sel.classList.contains('aside')) { const q = shown(sel); if (q) r = Math.min(r, q.left); }
+    if (sel.classList.contains('aside') || sel.classList.contains('panel')) { const q = shown(sel); if (q) r = Math.min(r, q.left); }
+    // the tool rail on the left
+    const rail = shown($('toolRail'));
+    if (rail && rail.left < W * 0.2) l = Math.max(l, rail.right);
     if (document.body.classList.contains('side-open')) { const q = shown($('side')); if (q && q.left > W * 0.4) r = Math.min(r, q.left); }
     // never squeeze the view into a sliver
     if (b - t < H * 0.3) b = Math.min(H, t + H * 0.3);
