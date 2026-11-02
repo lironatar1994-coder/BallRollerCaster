@@ -9,7 +9,7 @@ const COLORS = { red: '#ff4d5e', green: '#3ccf7a', blue: '#4c8dff' };
 const BOX = [['straight', 2], ['curveL', 1], ['curveR', 1], ['helixL', 0], ['helixR', 0], ['drop', 0], ['jump', 0], ['loop', 0], ['tramp', 0], ['booster', 0], ['brake', 0], ['switch', 0], ['cup', 1], ['basket', 0]];
 
 export function createPlay(app) {
-  const { S, $, world, sound, TOOLS, ICONS, esc } = app;
+  const { S, $, world, sound, TOOLS, ICONS, esc } = app; // app.C: what the missions keep track of
 
   // ------------------------------------------------ the remote
   const remoteEl = $('remote');
@@ -31,7 +31,7 @@ export function createPlay(app) {
       if (d instanceof SwitchDevice) { const st = world.devState(d); st.next = (st.next + 1) % d.n; world.emit('switch', d, st.next); }
       else if (d instanceof GateDevice) world.devState(d).pressed = world.time;
     }
-    if (n) { app.buzz(15); app.schedulePrediction(); }
+    if (n) { app.buzz(15); app.schedulePrediction(); app.C.pressed = true; }
   }
   remoteEl.addEventListener('pointerdown', (e) => {
     const b = e.target.closest('[data-remote]');

@@ -1110,6 +1110,9 @@ function onWorldEvent(type, a, b, c, d) {
     // with many balls scoring, the cup's own counter does the talking: a notice at most every 6 s
     if (b.plinko === 5 || performance.now() - lastGoalToast > 6000) { lastGoalToast = performance.now(); toast(b.plinko ? L('Plinko! +{0} · {1}', b.plinko, S.score) : L('🎯 Goal! · {0}', S.score)); }
     sticker('first-goal'); raceGoal(b);
+    if (b.plinko) { C.plinkoPts += b.plinko; if (b.plinko === 5) C.plinko5 = true; }
+    if (b.fromBox) C.boxGoal = true;
+    if (C.pressed) C.remoteGoals++;
     if (b.ch) C.goals.push({ ride: world.time - b.stats.born, pieceId: a.pieceId, loop: b.ch.loop, teddy: b.ch.teddy, tramp: b.ch.tramp, air: Math.max(b.ch.maxAir, b.ch.air), splash: b.ch.splash, gadgets: b.ch.gadgets.size });
   }
   else if (type === 'switch') sound.switchFlip();
@@ -1666,7 +1669,7 @@ function openChallenges() {
 $('roomTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-rt]'); if (b) { tourRoom = b.dataset.rt; openChallenges(); sound.click(); } });
 $('dailyCard').addEventListener('click', (e) => { if (e.target.closest('[data-daily]')) { $('chModal').classList.add('hidden'); startChallenge(-1); } });
 $('chList').addEventListener('click', (e) => { const b = e.target.closest('[data-ch]'); if (b && !b.disabled) { $('chModal').classList.add('hidden'); startChallenge(+b.dataset.ch); } });
-function resetChallengeState() { C.goals = []; C.dominoes = false; C.maxNotes = 0; C.maxLifts = 0; C.teddy = false; C.splash = false; C.splashes = []; C.maxPhotos = 0; C.best = null; C.maxGadgets = 0; C.race = null; C.lights = false; }
+function resetChallengeState() { C.goals = []; C.dominoes = false; C.maxNotes = 0; C.maxLifts = 0; C.teddy = false; C.splash = false; C.splashes = []; C.maxPhotos = 0; C.best = null; C.maxGadgets = 0; C.race = null; C.lights = false; C.plinkoPts = 0; C.plinko5 = false; C.boxNotes = 0; C.boxGoal = false; C.pressed = false; C.remoteGoals = 0; C.splitter = pieces.some(p => p.type === 'splitter'); }
 resetChallengeState();
 function startChallenge(i, custom) {
   // custom: a puzzle a friend sent (play.js)
@@ -2435,7 +2438,7 @@ const hidden = createCollectibles({
   get room() { return room; },
 });
 const play = createPlay({
-  S, $, world, sound, TOOLS, ICONS, esc, SAVE_V, buzz, schedulePrediction, closeMenus, closeModals, toast, shareLink, startChallenge,
+  S, C, $, world, sound, TOOLS, ICONS, esc, SAVE_V, buzz, schedulePrediction, closeMenus, closeModals, toast, shareLink, startChallenge,
   get room() { return room; }, get pieces() { return pieces; },
 });
 
@@ -3674,6 +3677,7 @@ function afterSync() {
   refreshSigns();
   if (S.multi.size) renderMulti();
   play.refreshRemote();
+  C.splitter = pieces.some(p => p.type === 'splitter');
   if (S.heat !== 'off' && !pred.running) insight.heat('off');
   if (S.win === 'coaster' && document.body.classList.contains('side-open')) renderCoasterTab();
 }
@@ -3694,7 +3698,7 @@ function frame(now) {
   for (let i = 0; i < steps; i++) world.step(DT);
   const adv = steps * DT;
   // music boxes drop a ball down a lane, and pluck its note, as each peg comes round
-  for (const dv of world.devices) if (dv instanceof MusicBoxDevice) for (const l of dv.due(world)) { spawnBall(dv.spawns[l].clone(), V()); sound.note(LANE_NOTES[l]); }
+  for (const dv of world.devices) if (dv instanceof MusicBoxDevice) for (const l of dv.due(world)) { spawnBall(dv.spawns[l].clone(), V()).fromBox = true; sound.note(LANE_NOTES[l]); C.boxNotes++; }
   if (adv > 0) rec.record(world, rotors(), S.follow && S.follow.id);
 
   camPos.copy(camera.position);

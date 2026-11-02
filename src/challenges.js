@@ -75,6 +75,30 @@ export const CHALLENGES = [
     score: (C) => { const t = best(C.goals, g => g.ride); return C.goals.length ? 1 + (t >= 6) + (t >= 9) : 0; },
     progress: (C) => ['Best ride: {0} s', best(C.goals, g => g.ride).toFixed(1)],
   },
+  // ---- the newer toys
+  {
+    id: 'jackpot', icon: '🎰', title: 'Plinko Jackpot', goal: 'Drop balls through a Plinko board — can you hit the 5?',
+    stars: ['Score in the Plinko', '10 Plinko points', 'Hit the 5'],
+    score: (C) => C.plinkoPts ? 1 + (C.plinkoPts >= 10) + !!C.plinko5 : 0,
+    progress: (C) => ['Plinko points: {0}', C.plinkoPts || 0],
+  },
+  {
+    id: 'song', icon: '🎼', title: 'Little Song', goal: 'Write a song on a Music Box (tap the pegs) and play it.',
+    stars: ['8 notes', '16 notes', 'A music box ball scores'],
+    score: (C) => (C.boxNotes >= 8) + (C.boxNotes >= 16) + (C.boxNotes >= 8 && !!C.boxGoal),
+    progress: (C) => ['Notes played: {0}', C.boxNotes || 0],
+  },
+  {
+    id: 'steer', icon: '🎮', title: 'Steer It!', goal: 'Set a gate or flip-flop to a coloured button, then press it to get balls into a goal.',
+    stars: ['Score after pressing a button', '3 goals', '5 goals'],
+    score: (C) => C.remoteGoals ? 1 + (C.remoteGoals >= 3) + (C.remoteGoals >= 5) : 0,
+    progress: (C) => ['Goals after a button press: {0}', C.remoteGoals || 0],
+  },
+  {
+    id: 'sort', icon: '🔀', title: 'Fast & Slow', goal: 'With a Speed Splitter, send balls into two different goals.',
+    stars: ['Two different goals', 'Three different goals', '12 pieces or fewer'],
+    score: (C, n) => { const k = new Set(C.goals.map(g => g.pieceId)).size; return C.splitter && k >= 2 ? 1 + (k >= 3) + (n <= 12) : 0; },
+  },
   // ---- kitchen
   {
     id: 'k-marathon', room: 'kitchen', icon: '🍳', title: 'Kitchen Marathon', goal: 'A long ride across the kitchen that ends in a goal.',
