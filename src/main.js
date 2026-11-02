@@ -19,6 +19,7 @@ import { createFeel, reduceMotion } from './feel.js';
 import { createPlay } from './play.js';
 import { createCollectibles } from './collect.js';
 import { createDraw } from './draw.js';
+import { createCameraAssist } from './camera.js';
 import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, MusicBoxDevice, LANE_NOTES, GoalDevice, PlinkoDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
 import { Sound, ROLL_FAMILY } from './audio.js';
 import { ICONS } from './icons.js';
@@ -55,7 +56,6 @@ const controls = new OrbitControls(camera, canvas);
 controls.target.set(-0.05, 0.3, 0.2);
 controls.enableDamping = true; controls.dampingFactor = 0.1;
 controls.minDistance = 0.1; controls.maxDistance = 7;
-controls.maxPolarAngle = Math.PI * 0.49;
 controls.zoomToCursor = true;
 controls.screenSpacePanning = true;
 
@@ -973,18 +973,9 @@ function placeSelPop(el) {
 }
 // ...and the chosen piece slides into the part of the screen the editor leaves free
 function keepInView() {
-  const el = $('selPop');
-  if (!S.selected || S.cam !== 'orbit' || el.classList.contains('hidden')) return;
-  const r = el.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight;
-  const box = { l: 0, r: el.classList.contains('aside') ? r.left : W, t: $('top').getBoundingClientRect().bottom, b: el.classList.contains('sheet') ? r.top : H - $('dock').offsetHeight };
-  _v.copy(S.selAnchor).project(camera);
-  const ax = (_v.x + 1) / 2 * W, ay = (1 - _v.y) / 2 * H, m = 50;
-  if (_v.z < 1 && ax > box.l + m && ax < box.r - m && ay > box.t + m && ay < box.b - m) return;
-  const fwd = camera.getWorldDirection(V());
-  const wpp = 2 * Math.max(0.05, S.selAnchor.clone().sub(camera.position).dot(fwd)) * Math.tan(camera.fov * DEG / 2) / H;
-  const shift = V().setFromMatrixColumn(camera.matrixWorld, 0).multiplyScalar(-((box.l + box.r) / 2 - ax) * wpp)
-    .addScaledVector(V().setFromMatrixColumn(camera.matrixWorld, 1), ((box.t + box.b) / 2 - ay) * wpp);
-  flyTo(camera.position.clone().add(shift), controls.target.clone().add(shift));
+  if (!S.selected || S.cam !== 'orbit' || $('selPop').classList.contains('hidden')) return;
+  camAssist.measure();
+  camAssist.keepVisible(S.selAnchor, 50);
 }
 // the little tag under the active ring: how high it is and how fast the ball gets there
 function positionRingTag(now) {
@@ -1466,7 +1457,7 @@ function setCam(mode) {
   S.cam = mode;
   controls.enabled = mode === 'orbit';
   camera.near = mode === 'pov' ? 0.002 : mode === 'orbit' ? 0.01 : 0.004;
-  camera.fov = mode === 'pov' ? 82 : 55;
+  camera.fov = mode === 'pov' ? 82 : mode === 'orbit' ? orbitFov() : 55;
   camera.updateProjectionMatrix();
   camState.yawOff = 0; camState.pitchOff = 0;
   if (mode === 'movie') movie.reset();
@@ -1478,6 +1469,8 @@ function setCam(mode) {
   if (mode !== 'orbit') { S.hover = null; clearGhost(); }
   renderSelPop();
 }
+// a phone held upright sees a narrow slice of the room: the build view opens up a little wider
+const orbitFov = () => camera.aspect >= 1 ? 55 : Math.min(72, 55 + (1 - camera.aspect) * 36);
 function refreshVisibility() {
   const building = S.cam === 'orbit' && !S.photo && !S.replay;
   markerGroup.visible = ghostGroup.visible = building && !S.move;
@@ -1497,6 +1490,15 @@ function blocked(from, to) {
 }
 // smooth camera moves in the build view (frame the coaster, zoom buttons)
 const camFly = { t: 1, p0: V(), p1: V(), q0: V(), q1: V() };
+const camAssist = createCameraAssist({
+  S, $, camera, controls, canvas, sound, toast, reduceMotion, flyTo, fitView, setCam, coasterBox, insts,
+  get room() { return room; },
+  flying: () => camFly.t < 1,
+  // what a double-tap looks at: a piece, a ball, or the room (not furniture that has faded away)
+  pickLook: () => raycaster.intersectObjects([trackGroup, ballGroup, ...room.solids, ...room.placeables], true).find(h => h.object.visible && !(h.object.material && h.object.material.opacity < 0.5)) || null,
+  // which way the track runs where you are working: the selected piece's end, else the ring
+  headingPort: () => { const o = S.selected && insts.get(S.selected)?.outs[0]; if (o) return o; const ap = activePort(); return ap && ap.port; },
+});
 function flyTo(pos, target, instant) {
   if (instant || reduceMotion()) { camera.position.copy(pos); controls.target.copy(target); camFly.t = 1; controls.update(); return; }
   camFly.p0.copy(camera.position); camFly.q0.copy(controls.target); camFly.p1.copy(pos); camFly.q1.copy(target); camFly.t = 0;
@@ -1507,14 +1509,12 @@ function fitView(instant) {
   const box = coasterBox();
   // nothing built yet: a view over the whole room from the front corner
   if (box.isEmpty()) { const b = room.bounds; flyTo(V(b.x1 * 0.55, Math.min(b.h * 0.72, 1.25), b.z1 * 0.92), V(-0.1, 0.22, -0.2), instant); return; }
-  const c = box.isEmpty() ? V(0.07, 0.12, 0.25) : box.getCenter(V());
-  const r = box.isEmpty() ? 0.55 : Math.max(0.25, box.getSize(V()).length() / 2);
+  camAssist.measure();
+  const c = box.getCenter(V()), r = Math.max(0.25, box.getSize(V()).length() / 2);
   const dir = camera.position.clone().sub(controls.target).normalize();
   dir.y = THREE.MathUtils.clamp(dir.y, 0.4, 0.8); dir.normalize();
-  const dist = THREE.MathUtils.clamp(r / Math.sin(camera.fov * DEG / 2) * 0.9, 0.35, 4);
-  const pos = c.clone().addScaledVector(dir, dist);
-  pos.y = Math.min(pos.y, room.bounds.h - 0.05);
-  flyTo(pos, c, instant);
+  const dist = THREE.MathUtils.clamp(camAssist.fitDistance(r), 0.35, 4);
+  flyTo(camAssist.spot(c, dir, dist), c, instant);
 }
 function zoomBy(f) {
   if (S.cam !== 'orbit') return;
@@ -1538,6 +1538,7 @@ function updateCamera(dt) {
     if (keys.has('r')) mv.y += 1; if (keys.has('f')) mv.y -= 1;
     if (mv.lengthSq()) { mv.normalize().multiplyScalar(dt * Math.max(0.4, camera.position.distanceTo(controls.target) * 1.2)); camera.position.add(mv); controls.target.add(mv); }
     controls.update();
+    camAssist.keepInRoom();
     // under the attic's sloping roof the camera has to stay inside
     if (room.kind === 'attic') camera.position.y = Math.min(camera.position.y, 0.63 + (1.68 - Math.abs(camera.position.x)) * 0.708 - 0.06);
     return;
@@ -1618,7 +1619,7 @@ function stopReplay() {
   controls.enabled = S.cam === 'orbit';
   camera.up.set(0, 1, 0);
   setCam(S.cam);
-  camera.fov = S.cam === 'pov' ? 82 : 55; camera.near = S.cam === 'orbit' ? 0.01 : 0.004; camera.updateProjectionMatrix();
+  camera.fov = S.cam === 'pov' ? 82 : S.cam === 'orbit' ? orbitFov() : 55; camera.near = S.cam === 'orbit' ? 0.01 : 0.004; camera.updateProjectionMatrix();
   if (S.cam === 'orbit' && camState.before) { camera.position.copy(camState.before.pos); controls.target.copy(camState.before.target); }
 }
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
@@ -2252,6 +2253,7 @@ canvas.addEventListener('pointerup', (e) => {
   const btn = down.btn; down = null;
   if (moved > 6 || !quick || btn !== 0) return;
   setMouse(e);
+  if (camAssist.doubleTap(e)) return;
   handleClick(e);
 });
 function handleClick(ev) {
@@ -2361,6 +2363,7 @@ window.addEventListener('keydown', (e) => {
     case 'e': case 'E': if (S.move) { S.move.yaw -= (e.shiftKey ? 15 : 45) * DEG; S.move.at = 0; } else { S.placeYaw -= (e.shiftKey ? 15 : 45) * DEG; refreshPlaceGhost(); } break;
     case 'p': case 'P': togglePause(); break;
     case 'o': case 'O': if (S.cam === 'orbit') draw.setFocus(!S.focus); break;
+    case 'y': case 'Y': camAssist.cycleView(); break;
     case 'c': case 'C': clearBalls(); break;
     case 'h': case 'H': case '?': $('help').classList.toggle('hidden'); break;
     case 'i': case 'I': setSide(!document.body.classList.contains('side-open')); break;
@@ -2581,6 +2584,7 @@ const hidden = createCollectibles({
 });
 const draw = createDraw({
   S, $, canvas, camera, controls, sound, scene, insts, makeData, activePort, commit, pushHistory, setHint, toast, clearGhost, flyTo, fitView,
+  frame: (p, size) => camAssist.frame(p, size),
   get room() { return room; },
 });
 const play = createPlay({
@@ -2952,7 +2956,7 @@ function stepSelection(dir) {
   const next = dir < 0 ? parentOf.get(id)?.id : (kids.get(id) || [])[0]?.id;
   if (next == null) { sound.error(); return; }
   select(next); sound.click();
-  if (S.camFollow) { const c = S.selAnchor.clone(), off = camera.position.clone().sub(controls.target); flyTo(c.clone().add(off), c); }
+  if (S.camFollow) camAssist.keepVisible(S.selAnchor, 70);
 }
 
 // ---------------------------------------------------------------- drag handles on the selected piece
@@ -3374,7 +3378,7 @@ function updateHeightBar(y, onSurf) {
 }
 
 // ---------------------------------------------------------------- camera follows the building
-S.camFollow = store.get('bc.camFollow', false);
+S.camFollow = store.get('bc.camFollow', true);
 let tourAdded = false;
 function afterBuild() {
   tourAdded = true;
@@ -3385,12 +3389,9 @@ function afterBuild() {
   if (S.stroke) return; // the camera holds still while a track is being drawn
   if (S.focus && S.cam === 'orbit') { draw.focusNow(); return; }
   if (!S.camFollow || S.cam !== 'orbit') return;
+  // only when the ring is about to leave the free part of the screen
   const ap = activePort();
-  if (!ap) return;
-  _v.copy(ap.port.p).project(camera);
-  if (Math.abs(_v.x) < 0.55 && Math.abs(_v.y) < 0.5) return;
-  const off = camera.position.clone().sub(controls.target), t = controls.target.clone().lerp(ap.port.p, 0.7);
-  flyTo(t.clone().add(off), t);
+  if (ap) camAssist.keepVisible(ap.port.p, 70, 0.8);
 }
 
 // ---------------------------------------------------------------- Finish it / Fix it
@@ -3697,13 +3698,17 @@ $('galExamples').onclick = (e) => {
 // ---------------------------------------------------------------- the guided tour
 // a first build you do yourself, step by step: watch a run, add a piece, watch it again
 const TOUR = [
-  { text: 'Welcome to Ball Coaster! Press ▶ Release to send a ball down the coaster.', at: '#btnRelease', wait: () => S.releases > tutor.mark },
+  { html: () => `<b>${L('Welcome to Ball Coaster!')}</b> ${L('First, look around:')}<div class="gest">${(touchScreen()
+    ? [['☝️', 'One finger: turn'], ['🤏', 'Two fingers: zoom and slide'], ['👆👆', 'Double-tap: look there']]
+    : [['🖱️', 'Drag: turn'], ['🖱️➡', 'Right-drag: slide'], ['⚙️', 'Wheel: zoom'], ['👆👆', 'Double-click: look there']]).map(([i, t]) => `<span><i>${i}</i>${L(t)}</span>`).join('')}</div><small class="lost">${L('Lost? Press ⤢ to see the whole coaster.')}</small>`,
+    wait: () => camAssist.gestures() >= 2, soft: true },
+  { text: 'Now press ▶ Release to send a ball down the coaster.', at: '#btnRelease', wait: () => S.releases > tutor.mark },
   { text: 'The glowing ring is where your track goes next. Tap ＋ on its tag to open the build pad.', at: '#ringTag', wait: () => !$('buildPad').classList.contains('hidden') },
   { text: 'Pick a turn. A green ✓ means the ball will make it — try one!', at: '#buildPad', wait: () => tourAdded },
   { text: 'Now press ▶ Release again and watch your new piece.', at: '#btnRelease', wait: () => S.releases > tutor.mark },
   { text: 'Tap any piece to change it. More pieces are in the tabs below — and friends will drop by to try your coaster. Have fun!', at: '#dockTabs' },
 ];
-const tutor = { on: false, i: 0, mark: 0 };
+const tutor = { on: false, i: 0, mark: 0, at: 0 };
 function startTour() { closeModals(); tutor.on = true; tutor.i = 0; tourAdded = false; showTourStep(); }
 function endTour() { tutor.on = false; store.set('bc.tour', true); $('tutor').classList.add('hidden'); $('tutorArrow').classList.add('hidden'); }
 function showTourStep() {
@@ -3711,7 +3716,8 @@ function showTourStep() {
   if (!st) { endTour(); return; }
   tutor.mark = S.releases || 0; tourAdded = false;
   $('tutor').classList.remove('hidden');
-  $('tutor').querySelector('.tb').innerHTML = `<small>${tutor.i + 1} / ${TOUR.length}</small> ${L(st.text)}`;
+  $('tutor').querySelector('.tb').innerHTML = `<small>${tutor.i + 1} / ${TOUR.length}</small> ${st.html ? st.html() : L(st.text)}`;
+  tutor.at = performance.now();
   $('tutorNext').textContent = tutor.i === TOUR.length - 1 ? L("Let's build! 🚀") : L('Next ▶');
   placeTutor();
 }
@@ -3719,7 +3725,7 @@ function placeTutor() {
   const st = TOUR[tutor.i], el = $('tutor'), ar = $('tutorArrow');
   const target = st && st.at ? document.querySelector(st.at) : null;
   const r = target && !target.classList.contains('hidden') ? target.getBoundingClientRect() : null;
-  $('tutorNext').disabled = !!(st && st.wait && !st.wait());
+  $('tutorNext').disabled = !!(st && st.wait && !st.soft && !st.wait());
   if (!r || !r.width) { el.style.left = '50%'; el.style.top = '38%'; el.style.transform = 'translate(-50%, -50%)'; ar.classList.add('hidden'); return; }
   el.style.transform = 'none';
   const below = r.top < window.innerHeight / 2;
@@ -3738,7 +3744,7 @@ function tutorTick(now) {
   if (!tutor.on || now - tourT < 250) return;
   tourT = now;
   const st = TOUR[tutor.i];
-  if (st && st.wait && st.wait() && $('tutorNext').disabled) { tutor.i++; showTourStep(); return; }
+  if (st && st.wait && st.wait() && ($('tutorNext').disabled || (st.soft && now - tutor.at > 2500))) { tutor.i++; showTourStep(); return; }
   placeTutor();
 }
 
@@ -3817,6 +3823,7 @@ $('btnShare').onclick = copyShareLink;
 $('btnVisit').onclick = () => { closeModals(); visitors.callNow(); };
 $('btnPuzzle').onclick = () => play.openMaker();
 $('camFocus').onclick = () => draw.setFocus(!S.focus);
+$('camTurn').onclick = () => camAssist.cycleView();
 $('btnNote').onclick = () => play.openNote();
 $('btnSettings').onclick = () => { closeMenus(); syncOptions(); $('settingsModal').classList.remove('hidden'); };
 $('btnTour').onclick = () => { closeMenus(); startTour(); };
@@ -3988,6 +3995,7 @@ function frame(now) {
   updatePops(dt);
   tickPrediction();
   updateCamera(dt);
+  camAssist.tick(dt, now);
   updateArrows();
   hudTick(dt);
   positionSelPop();
@@ -4023,7 +4031,9 @@ function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
   composer.setSize(w, h);
-  camera.aspect = w / h; camera.updateProjectionMatrix();
+  camera.aspect = w / h;
+  if (S.cam === 'orbit' && !S.replay) camera.fov = orbitFov();
+  camera.updateProjectionMatrix();
   document.body.classList.toggle('phone', phone());
   if (phone() !== wasPhone) { wasPhone = phone(); renderDock(); }
   if (selMode() !== wasSel) { wasSel = selMode(); renderSelPop(); }
@@ -4065,7 +4075,7 @@ requestAnimationFrame(loop);
 startVisitorSignal();
 // debug hooks (used for automated testing; harmless in play)
 window.__bc = {
-  world, S, C, insts, pieces: () => pieces, releaseAll, spawnBall, setCam, pred, sync, camera, controls, pickTool, select,
+  world, S, C, insts, pieces: () => pieces, releaseAll, spawnBall, setCam, pred, sync, camera, controls, pickTool, select, camAssist,
   markers: markerGroup, insight, visitors, takeBallPhoto, copyShareLink, checkSharedLink, switchRoom, runFinishIt, runFixIt, pastePart, BUILTIN_PARTS, mirrorIds, openCtx, setAuto, openRooms, openGallery, startTour, get room() { return room; }, ports: () => ({ openOuts, openIns }), chainLinks, tweakSelected, deletePiece, startInsert, tryAppend, undo, fitView, startChallenge, exitChallenge, startReplay, stopReplay, setNight, setPhoto, rec,
   // advance the game by `sec` seconds of wall time in 1/60 s frames (works even when the tab is throttled)
   run(sec) { let t = lastT; for (let i = 0; i < sec * 60; i++) { t += 1000 / 60; frame(t); } lastT = performance.now(); },

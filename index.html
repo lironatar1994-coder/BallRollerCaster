@@ -142,6 +142,7 @@
 <!-- camera pad -->
 <div id="camPad">
   <button id="camFit" data-i18n-title="Show the whole coaster · Z" title="Show the whole coaster · Z">⤢</button>
+  <button id="camTurn" data-i18n-title="Turn the view: from above, from the side, along the track · Y" title="Turn the view: from above, from the side, along the track · Y">👁</button>
   <button id="camFocus" data-i18n-title="Focus: stay close to what you are building · O" title="Focus: stay close to what you are building · O">🎯</button>
   <button id="camIn" data-i18n-title="Zoom in" title="Zoom in">＋</button>
   <button id="camOut" data-i18n-title="Zoom out" title="Zoom out">−</button>
@@ -152,6 +153,7 @@
 <!-- floating editor for the selected piece -->
 <div id="selPop" class="hidden"></div>
 <div id="ringTag" class="hidden"></div>
+<button id="lostBtn" class="hidden"><i>🎢</i><span data-i18n>Back to my coaster</span></button>
 <button id="ringEdge" class="hidden" data-i18n-title="Back to where you are building" title="Back to where you are building"><i>➜</i><b>＋</b></button>
 <div id="buildPad" class="hidden" dir="ltr"></div>
 <div id="multiBar" class="hidden"></div>
@@ -326,6 +328,8 @@
       <summary data-i18n>Controls &amp; shortcuts</summary>
       <div class="keys">
         <span><kbd>Left drag</kbd> <i data-i18n>orbit</i></span><span><kbd>Right drag</kbd> <i data-i18n>pan</i></span><span><kbd>Wheel</kbd> <i data-i18n>zoom</i></span><span><kbd>W A S D</kbd> <i data-i18n>move</i></span>
+        <span><kbd data-i18n>Double-click</kbd> <i data-i18n>look there</i></span><span><kbd>Y</kbd> <i data-i18n>turn the view</i></span><span><kbd>O</kbd> <i data-i18n>focus</i></span>
+        <span class="wide"><kbd>☝️</kbd> <i data-i18n>one finger turns · two fingers zoom and slide · double-tap looks there</i></span>
         <span><kbd>↑ ← →</kbd> <i data-i18n>straight / curves</i></span><span><kbd>Enter</kbd> <i data-i18n>repeat last piece</i></span><span><kbd>Backspace</kbd> <i data-i18n>remove last</i></span><span><kbd>Del</kbd> <i data-i18n>remove selected</i></span>
         <span><kbd>[ ]</kbd> <i data-i18n>slope</i></span><span><kbd>Q E</kbd> <i data-i18n>turn while placing</i></span><span><kbd>1 2 3 4</kbd> <i data-i18n>cameras</i></span><span><kbd>Tab</kbd> <i data-i18n>next ball</i></span>
         <span><kbd>Space</kbd> <i data-i18n>release</i></span><span><kbd>P</kbd> <i data-i18n>pause</i></span><span><kbd>M</kbd> <i data-i18n>replay</i></span><span><kbd>K</kbd> <i data-i18n>photo</i></span>

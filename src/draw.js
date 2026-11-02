@@ -101,17 +101,13 @@ export function createDraw(app) {
   window.addEventListener('pointercancel', (e) => { if (stroke && e.pointerId === stroke.pid) finish(); }, true);
 
   // ------------------------------------------------ focus mode
-  // the camera sits close to the part being worked on: the selected piece, or else the glowing ring
-  const CLOSE = 0.32;
-  function focusOn(p, instant) {
-    const dir = camera.position.clone().sub(controls.target);
-    if (dir.lengthSq() < 1e-6) dir.set(0, 0.6, 1);
-    dir.normalize(); dir.y = THREE.MathUtils.clamp(dir.y, 0.35, 0.8); dir.normalize();
-    app.flyTo(p.clone().addScaledVector(dir, CLOSE), p.clone(), instant);
-  }
+  // the camera sits close to the part being worked on: the selected piece (sized to fit), or else the
+  // glowing ring with a piece's length around it
+  const _box = new THREE.Box3(), _s = new THREE.Sphere();
   function focusNow() {
-    const p = S.selected && app.insts.has(S.selected) ? S.selAnchor : S.ringInfo && S.ringInfo.p;
-    if (p) focusOn(p);
+    const inst = S.selected && app.insts.get(S.selected);
+    if (inst) { _box.setFromObject(inst.group).getBoundingSphere(_s); app.frame(_s.center.clone(), THREE.MathUtils.clamp(_s.radius, 0.06, 0.4)); }
+    else if (S.ringInfo) app.frame(S.ringInfo.p, 0.12);
   }
   function setFocus(on) {
     S.focus = on;
