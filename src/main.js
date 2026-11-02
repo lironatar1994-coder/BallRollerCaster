@@ -3249,24 +3249,49 @@ function showBump(persist) {
 S.seeThrough = store.get('bc.seeThrough', true);
 const fade = new Map();
 let stT = 0;
+// Every mesh of the room's furniture (not the floor, the walls or the ceiling, which are far bigger),
+// each with the others it touches: when any part of a piece is in the way, the whole piece fades —
+// a bookcase's thin back panel, its books and the toys on top together.
+let furniture = null;
+function furnitureOf() {
+  if (furniture && furniture.room === room) return furniture;
+  const items = [];
+  room.group.updateMatrixWorld(true);
+  room.group.traverse(o => {
+    if (!o.isMesh || !o.material || o.userData.surface === 'floor' || o.userData.noFade) return;
+    const box = new THREE.Box3().setFromObject(o), s = box.getSize(V());
+    if (box.isEmpty() || s.x > 2.2 || s.z > 2.2 || s.y > 1.9) return;
+    items.push({ m: o, box });
+  });
+  const near = new Map();
+  for (const a of items) {
+    const grown = a.box.clone().expandByScalar(0.02);
+    near.set(a.m, items.filter(b => grown.intersectsBox(b.box)).map(b => b.m));
+  }
+  furniture = { room, meshes: items.map(i => i.m), items, near };
+  return furniture;
+}
 function seeThrough(now) {
   if (now - stT > 120) {
     stT = now;
     const want = new Set();
     if (S.seeThrough && S.cam === 'orbit' && !S.replay) {
+      const F = furnitureOf();
       const targets = [controls.target.clone()];
       if (S.ringInfo) targets.push(S.ringInfo.p);
       if (S.selected && insts.has(S.selected)) targets.push(S.selAnchor);
+      // a few rays round the middle of the view too, so a piece only half in the way still fades
+      const rgt = V().setFromMatrixColumn(camera.matrixWorld, 0), up = V().setFromMatrixColumn(camera.matrixWorld, 1);
+      const reach = camera.position.distanceTo(controls.target) * 0.18;
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) targets.push(controls.target.clone().addScaledVector(rgt, a * reach).addScaledVector(up, b * reach));
       for (const t of targets) {
         const dir = t.clone().sub(camera.position), len = dir.length();
         if (len < 0.1) continue;
         occRay.set(camera.position, dir.divideScalar(len)); occRay.far = len - 0.04;
-        for (const h of occRay.intersectObjects(room.solids, false)) {
-          const m = h.object;
-          if (m.userData.surface === 'floor' || m.userData.noFade || !m.material) continue;
-          want.add(m);
-        }
+        for (const h of occRay.intersectObjects(F.meshes, false)) for (const m of F.near.get(h.object) || [h.object]) want.add(m);
       }
+      // and whatever the camera has ended up inside
+      for (const it of F.items) if (it.box.containsPoint(camera.position)) for (const m of F.near.get(it.m)) want.add(m);
     }
     for (const m of want) if (!fade.has(m)) {
       const orig = m.material, mats = [].concat(orig).map(x => { const c = x.clone(); c.transparent = true; c.depthWrite = false; return c; });
@@ -3276,7 +3301,7 @@ function seeThrough(now) {
     for (const [m, f] of fade) f.want = want.has(m);
   }
   for (const [m, f] of fade) {
-    f.k += ((f.want ? 0.22 : 1) - f.k) * 0.15;
+    f.k += ((f.want ? 0.14 : 1) - f.k) * 0.15;
     for (const x of f.mats) x.opacity = f.k;
     if (!f.want && f.k > 0.97) { m.material = f.orig; f.mats.forEach(x => x.dispose()); fade.delete(m); }
   }
