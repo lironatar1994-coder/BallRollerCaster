@@ -280,6 +280,6 @@ const HE = {
   'Near misses — a ball rushing just under another track — are extra fun.': 'כמעט־נגיעות — כדור שעובר ממש מתחת למסילה אחרת — כיפיות במיוחד.',
   'A spiral that is too long makes everyone dizzy. Mix in some straight runs!': 'ספירלה ארוכה מדי מסחררת את כולם. שלבו גם קטעים ישרים!',
   'Right-click a piece for more: insert after it, mirror, copy, save as a part.': 'קליק ימני על חלק נותן עוד: להכניס אחריו, לשקף, להעתיק, לשמור כחלק.',
-  'Close the panel · I': 'סגירת הלוח · I', '✨ Finished with one piece! (Ctrl+Z to undo)': '✨ הושלם עם חלק אחד! (Ctrl+Z לביטול)',
+  'Close the panel · I': 'סגירת הלוח · I', 'Tools': 'כלים', 'Slope, color and style': 'שיפוע, צבע וסגנון', 'Hide / show the pieces': 'הסתרה / הצגה של החלקים', '✨ Finished with one piece! (Ctrl+Z to undo)': '✨ הושלם עם חלק אחד! (Ctrl+Z לביטול)',
   'Drag a piece’s orange handle to stretch it. Hold Shift to change its slope.': 'גוררים את הידית הכתומה של חלק כדי למתוח אותו. עם Shift משנים את השיפוע.',
 };

@@ -1643,12 +1643,23 @@ function chips(el, items, isOn, onPick, cls = 'chip', disabled = false) {
     el.appendChild(b);
   }
 }
+// on a phone the tools move into a tab of their own, so the dock is just one row of tabs and one of pieces
+const phone = () => window.innerWidth <= 760 || window.innerHeight <= 520;
+function dockTabs() {
+  if (!phone()) return DOCK_TABS;
+  const t = TOOLS[S.tool], label = S.tool === 'select' || t.type === 'append' ? '🛠 ' + L('Tools') : `🛠 ${L(t.label)}`;
+  return [['tools', label, DOCK_TOOLS], ...DOCK_TABS];
+}
 function renderDock() {
   $('dockTools').innerHTML = DOCK_TOOLS.map(k => `<button class="tool${S.tool === k ? ' on' : ''}" data-tool="${k}" title="${L(TOOLS[k].desc)} · ${TOOLS[k].key}">${ICONS[TOOLS[k].icon]}<span>${L(TOOLS[k].label)}</span></button>`).join('');
-  $('dockTabs').innerHTML = DOCK_TABS.map(([k, label]) => `<button class="tab${S.tab === k ? ' on' : ''}" data-tab="${k}">${L(label)}</button>`).join('');
-  const tab = DOCK_TABS.find(t => t[0] === S.tab) || DOCK_TABS[0];
+  const tabs = dockTabs();
+  if (!tabs.some(t => t[0] === S.tab)) S.tab = 'tracks';
+  $('dockTabs').innerHTML = tabs.map(([k, label]) => `<button class="tab${S.tab === k ? ' on' : ''}" data-tab="${k}">${k === 'tools' ? label : L(label)}</button>`).join('') +
+    `<span class="tabEnd"><button class="tab mini" data-settings title="${L('Slope, color and style')}">⚙</button><button class="tab mini" data-fold title="${L('Hide / show the pieces')}">${document.body.classList.contains('dock-folded') ? '▴' : '▾'}</button></span>`;
+  const tab = tabs.find(t => t[0] === S.tab) || tabs[0];
   const hasPort = !!activePort();
   if (tab[0] === 'parts') { $('dockPieces').innerHTML = partsHTML(); return; }
+  if (tab[0] === 'tools') { $('dockPieces').innerHTML = DOCK_TOOLS.map(k => `<button class="piece toolPiece${S.tool === k ? ' on' : ''}" data-tool="${k}">${ICONS[TOOLS[k].icon]}<span>${L(TOOLS[k].label)}</span></button>`).join(''); return; }
   $('dockPieces').innerHTML = tab[2].map(k => {
     const t = TOOLS[k], left = partsLeft(k);
     const off = (t.type === 'append' && !hasPort) || left === 0;
@@ -1659,7 +1670,9 @@ let suppressClick = false;
 $('dock').addEventListener('click', (e) => {
   if (suppressClick) { suppressClick = false; return; }
   const tb = e.target.closest('[data-tab]');
-  if (tb) { S.tab = tb.dataset.tab; store.set('bc.tab', S.tab); sound.click(); renderDock(); return; }
+  if (tb) { S.tab = tb.dataset.tab; store.set('bc.tab', S.tab); sound.click(); if (document.body.classList.contains('dock-folded')) foldDock(false); renderDock(); return; }
+  if (e.target.closest('[data-fold]')) { foldDock(!document.body.classList.contains('dock-folded')); sound.click(); return; }
+  if (e.target.closest('[data-settings]')) { document.body.classList.toggle('show-settings'); sound.click(); return; }
   const del = e.target.closest('[data-delpart]');
   if (del) { const list = userParts(); list.splice(+del.dataset.delpart, 1); store.set('bc.parts', list); renderDock(); return; }
   const pb = e.target.closest('[data-part]');
@@ -1752,9 +1765,11 @@ window.addEventListener('pointerup', (e) => {
   clearGhost(); updateGhost();
 });
 
+function foldDock(on) { document.body.classList.toggle('dock-folded', on); store.set('bc.fold', on); renderDock(); }
 function renderSettings() {
   const el = $('settings');
   el.innerHTML = '';
+  document.body.classList.toggle('placing', TOOLS[S.tool].type === 'place');
   const add = (html) => { const s = document.createElement('span'); s.innerHTML = html; el.appendChild(s); return s; };
   const box = () => { const c = document.createElement('div'); c.className = 'chips'; el.appendChild(c); return c; };
   const t = TOOLS[S.tool];
@@ -1822,7 +1837,7 @@ function openMenu(menu, anchor, fill, up) {
   menu.classList.remove('hidden');
   const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
   menu.style.left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8) + 'px';
-  menu.style.top = (up ? r.top - h - 8 : r.bottom + 8) + 'px';
+  menu.style.top = Math.max(8, Math.min(up ? r.top - h - 8 : r.bottom + 8, window.innerHeight - h - 8)) + 'px';
 }
 function closeMenus() { document.querySelectorAll('.menu').forEach(m => m.classList.add('hidden')); }
 document.addEventListener('click', (e) => { if (!e.target.closest('.menu, [data-menu]')) closeMenus(); });
@@ -3469,13 +3484,22 @@ function renderFrame() {
   renderCornerCam();
 }
 
+let wasPhone = phone();
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
   composer.setSize(w, h);
   camera.aspect = w / h; camera.updateProjectionMatrix();
+  if (phone() !== wasPhone) { wasPhone = phone(); renderDock(); }
 }
 window.addEventListener('resize', resize);
+// overlays sit just above the dock and just below the top bar, whatever their size
+const dockObserver = new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--dockH', Math.round($('dock').getBoundingClientRect().height) + 'px');
+  document.documentElement.style.setProperty('--topH', Math.round($('top').getBoundingClientRect().bottom) + 'px');
+});
+for (const id of ['dock', 'top']) dockObserver.observe($(id));
+if (store.get('bc.fold', false)) document.body.classList.add('dock-folded');
 
 // ================================================================ boot
 setLang(store.get('bc.lang', 'en'));

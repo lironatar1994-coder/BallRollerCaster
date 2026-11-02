@@ -46,6 +46,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .menu i { font-style: normal; width: 20px; text-align: center; }
 .menu kbd { margin-inline-start: auto; }
 #moreMenu { min-width: 250px; }
+.menu { max-height: calc(100vh - 70px); overflow-y: auto; overscroll-behavior: contain; }
 #moreMenu button.on { background: none; }
 #moreMenu button.on:hover { background: #f4f1ff; }
 #moreMenu .tick { width: 30px; height: 18px; border-radius: 9px; background: #dcdce6; position: relative; margin-inline-start: auto; flex: 0 0 auto; transition: background .15s; }
@@ -465,40 +466,102 @@ canvas#c { touch-action: none; }
   #side { width: calc(100vw - 20px); }
 }
 
-/* ---------------------------------------------------------------- phones: two-row top bar, a full-width dock */
+/* ---------------------------------------------------------------- the dock's tab row: settings and fold buttons */
+.tabEnd { display: flex; gap: 2px; margin-inline-start: auto; padding-inline-start: 6px; }
+.tab.mini { padding: 3px 9px; }
+body.dock-folded #dockPieces, body.dock-folded #dockTools, body.dock-folded .dockSep, body.dock-folded #settings { display: none; }
+body.dock-folded #dockMain { padding: 5px 8px; }
+#news { bottom: calc(var(--dockH, 140px) + 16px); }
+#multiBar { bottom: calc(var(--dockH, 140px) + 16px); }
+.piece.toolPiece svg { width: 40px; height: 30px; }
+
+/* ---------------------------------------------------------------- phones: the 3D view gets the screen */
 @media (max-width: 760px) {
-  #top { flex-wrap: wrap; gap: 6px; top: 6px; left: 6px; right: 6px; }
+  /* top: cameras + challenges/undo/more on one row, play controls on a slim second row */
+  #top { flex-wrap: wrap; gap: 4px; top: 4px; left: 4px; right: 4px; }
   #top .spacer { display: none; }
   #camModes { order: 1; }
   #rightGrp { order: 2; margin-inline-start: auto; }
-  #playGrp { order: 3; width: 100%; justify-content: space-between; }
-  #btnReplay, #btnClear, #speedLabel, #ballName, #rightGrp > #btnChallenges span { display: none; }
-  .grp > button { padding: 7px 8px; }
-  #dock { left: 6px; right: 6px; bottom: 6px; transform: none; width: auto; max-width: none; }
-  body.side-open #dock { left: 6px; max-width: none; }
-  #settings { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; width: 100%; border-radius: 14px; scrollbar-width: none; }
+  #playGrp { order: 3; width: 100%; justify-content: space-between; padding: 2px 4px; }
+  #btnReplay, #btnClear, #speedLabel, #ballName, #btnHist, #rightGrp > #btnChallenges span, #camModes button span { display: none !important; }
+  .grp { padding: 2px; border-radius: 14px; }
+  .grp > button { padding: 6px 8px; font-size: 14px; }
+  .grp > button i { font-size: 15px; }
+  .grp > button.go { padding: 6px 12px; }
+  .balldot, .ballpick .balldot { width: 20px; height: 20px; }
+
+  /* the dock: one row of tabs, one row of pieces; settings only when needed */
+  #dock { left: 4px; right: 4px; bottom: 4px; transform: none; width: auto; max-width: none; gap: 4px; }
+  body.side-open #dock { left: 4px; max-width: none; }
+  #dockMain { flex-direction: column; width: 100%; padding: 4px; gap: 3px; border-radius: 16px; }
+  #dockTools, .dockSep { display: none; }
+  #dockRight { width: 100%; gap: 3px; }
+  #dockTabs { overflow-x: auto; scrollbar-width: none; gap: 2px; }
+  #dockTabs::-webkit-scrollbar { display: none; }
+  .tab { white-space: nowrap; font-size: 12px; padding: 3px 9px; }
+  .tabEnd { position: sticky; inset-inline-end: 0; background: var(--panel-solid); border-radius: 999px; }
+  #dockPieces { gap: 4px; padding: 1px 1px 2px; scrollbar-width: none; }
+  #dockPieces::-webkit-scrollbar { display: none; }
+  .piece { width: 62px; border-radius: 12px; padding: 4px 2px 3px; font-size: 10.5px; line-height: 1.15; }
+  .piece svg, .piece.toolPiece svg { width: 34px; height: 26px; }
+  .piece .kb, .piece .pl { display: none; }
+  #settings { display: none; flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; width: 100%; border-radius: 14px; padding: 4px 10px; scrollbar-width: none; }
+  body.show-settings #settings, body.placing #settings { display: flex; }
   #settings::-webkit-scrollbar { display: none; }
-  #dockMain { flex-direction: column; width: 100%; padding: 6px; gap: 4px; border-radius: 18px; }
-  #dockTools { grid-template-columns: none; grid-auto-flow: column; overflow-x: auto; justify-content: start; }
-  .dockSep { display: none; }
-  #dockRight { width: 100%; }
-  #dockTabs { overflow-x: auto; scrollbar-width: none; }
-  .tab { white-space: nowrap; }
-  .piece { width: 68px; }
-  .tool { width: 52px; }
-  #camPad { bottom: auto; top: 128px; }
-  body.side-open #camPad, body.side-open #pipFrame, body.side-open #buildPad { display: none !important; }
   #settings .chips { flex-wrap: nowrap; }
   #settings > span, #settings .chip { white-space: nowrap; }
-  #pipFrame { top: 128px; left: 6px; bottom: auto !important; right: auto !important; }
-  #news { bottom: 250px; }
-  #predPill { top: 104px; max-width: calc(100vw - 80px); }
-  #mission { top: 104px; width: calc(100vw - 80px); }
-  #multiBar { bottom: 250px; max-width: calc(100vw - 12px); overflow-x: auto; }
+
+  /* floating bits: small, out of the middle */
+  #camPad { top: auto; bottom: calc(var(--dockH, 120px) + 12px); right: 6px; padding: 3px; border-radius: 12px; }
+  #camPad button { width: 34px; height: 32px; font-size: 16px; }
+  #camPip { display: none; }
+  body.side-open #camPad, body.side-open #pipFrame, body.side-open #buildPad { display: none !important; }
+  #pipFrame { top: calc(var(--topH, 90px) + 44px); left: 6px; bottom: auto !important; right: auto !important; }
+  #predPill { top: calc(var(--topH, 90px) + 6px); right: 6px; max-width: calc(100vw - 12px); padding: 4px 11px 4px 8px; font-size: 12.5px; }
+  #mission { top: calc(var(--topH, 90px) + 40px); left: 6px; width: calc(100vw - 60px); padding: 7px 10px; font-size: 12px; }
+  #hint { top: calc(var(--topH, 90px) + 40px); max-width: calc(100vw - 20px); white-space: normal; text-align: center; font-size: 12.5px; }
+  #toast { top: calc(var(--topH, 90px) + 76px); max-width: calc(100vw - 20px); font-size: 14px; }
+  #news { left: 6px; bottom: calc(var(--dockH, 120px) + 12px); max-width: calc(100vw - 60px); gap: 4px; }
+  #news .newsItem { font-size: 12px; padding: 5px 10px; border-radius: 12px; gap: 6px; }
+  #news .newsItem i { font-size: 15px; }
+  #news .newsItem:nth-child(n+3) { display: none; }
+  .newsThumb { width: 44px; height: 33px; }
+  #multiBar { bottom: calc(var(--dockH, 120px) + 12px); max-width: calc(100vw - 12px); overflow-x: auto; }
   #heightBar { display: none; }
-  #hint { top: 104px; max-width: calc(100vw - 20px); white-space: normal; text-align: center; }
-  #toast { top: 140px; max-width: calc(100vw - 20px); }
+  #ringTag { font-size: 11px; padding: 2px 7px; }
+  #buildPad button { width: 30px; height: 30px; font-size: 15px; }
+  .bubble { font-size: 12.5px; max-width: 200px; padding: 5px 10px; }
   #sideToggle { display: none !important; }
-  #side { top: 104px; right: 6px; left: 6px; width: auto; bottom: 250px; }
+  #side { top: calc(var(--topH, 90px) + 6px); right: 4px; left: 4px; width: auto; bottom: calc(var(--dockH, 120px) + 10px); }
+  #selPop { min-width: 0; max-width: calc(100vw - 12px); font-size: 12px; padding: 6px 8px; }
+  #selPop .chip { padding: 2px 7px; }
+  #pipFrame { width: 150px; height: 112px; }
+  #tutor { width: calc(100vw - 24px); font-size: 14px; }
+  .menu { max-height: calc(100vh - var(--topH, 80px) - 16px); }
+  .menu button { padding: 6px 10px; font-size: 14px; }
+  #moreMenu { min-width: 230px; }
+}
+/* short screens (a phone on its side): even slimmer */
+@media (max-height: 520px) {
+  #dockTools, .dockSep { display: none; }
+  #dockRight { gap: 3px; }
+  #dockMain { padding: 4px 6px; }
+  .tab { font-size: 12px; padding: 2px 9px; }
+  #settings { display: none; }
+  body.show-settings #settings, body.placing #settings { display: flex; }
+  #camPad { top: auto; bottom: calc(var(--dockH, 100px) + 8px); padding: 3px; }
+  #camPad button { width: 32px; }
+  #camPip { display: none; }
+  #news { bottom: calc(var(--dockH, 100px) + 8px); }
+  #predPill { top: calc(var(--topH, 50px) + 6px); }
+  #top { top: 4px; }
+  .grp > button { padding: 4px 7px; }
+  .piece { width: 56px; padding: 2px; }
+  .piece span:not(.kb):not(.pl):not(.lim) { display: none; }
+  .tool span { display: none; }
+  .tool { width: 40px; }
+  #settings { padding: 3px 10px; }
+  #news .newsItem:nth-child(n+2) { display: none; }
+  #camPad button { height: 28px; }
 }
 #winTabs .winClose { flex: 0 0 auto; color: var(--muted); }
