@@ -205,11 +205,25 @@ export function posterTexture(kind) {
   });
 }
 
-export function marbleTexture(color, kind) {
-  return memo('marble' + color + kind, () => {
+// look: '' (each material's own), 'stripes', 'galaxy' or 'smiley' — only paint, the physics stay the material's
+export function marbleTexture(color, kind, look = '') {
+  return memo('marble' + color + kind + look, () => {
     const [c, g] = cnv(256, 128);
     const base = new THREE.Color(color);
-    if (kind === 'glass') {
+    if (look === 'stripes') {
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, 256, 128);
+      g.fillStyle = '#' + base.getHexString();
+      for (let i = -2; i < 10; i++) { g.beginPath(); g.moveTo(i * 32, 0); g.lineTo(i * 32 + 16, 0); g.lineTo(i * 32 + 48, 128); g.lineTo(i * 32 + 32, 128); g.fill(); }
+    } else if (look === 'galaxy') {
+      const gr = g.createLinearGradient(0, 0, 256, 128); gr.addColorStop(0, '#1b1446'); gr.addColorStop(0.5, '#3a1f6b'); gr.addColorStop(1, '#0f2a5c');
+      g.fillStyle = gr; g.fillRect(0, 0, 256, 128);
+      g.fillStyle = 'rgba(255,170,240,0.35)'; for (let i = 0; i < 6; i++) { g.beginPath(); g.ellipse(rnd() * 256, rnd() * 128, 30, 10, rnd() * 3, 0, 7); g.fill(); }
+      for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(255,255,255,${0.4 + rnd() * 0.6})`; g.fillRect(rnd() * 256, rnd() * 128, 2, 2); }
+    } else if (look === 'smiley') {
+      g.fillStyle = '#ffd23f'; g.fillRect(0, 0, 256, 128);
+      g.fillStyle = '#2b2d42';
+      for (const x of [52, 180]) { g.beginPath(); g.arc(x - 12, 50, 7, 0, 7); g.arc(x + 12, 50, 7, 0, 7); g.fill(); g.lineWidth = 6; g.strokeStyle = '#2b2d42'; g.beginPath(); g.arc(x, 66, 22, 0.2, Math.PI - 0.2); g.stroke(); }
+    } else if (kind === 'glass') {
       g.fillStyle = '#' + base.clone().lerp(new THREE.Color('#ffffff'), 0.35).getHexString(); g.fillRect(0, 0, 256, 128);
       for (let k = 0; k < 3; k++) {
         g.strokeStyle = k === 1 ? 'rgba(255,255,255,0.85)' : '#' + base.clone().multiplyScalar(0.7).getHexString();

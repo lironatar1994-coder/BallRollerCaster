@@ -6,6 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { World, Ball, BALL_TYPES, DT, RotorBody } from './physics.js';
 import { buildRoomKind, ROOM_KINDS } from './rooms.js';
 import { createInsight, starText } from './insight.js';
@@ -61,6 +62,24 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.75, 0.55, 0.78);
 composer.addPass(bloom);
+// a miniature "tilt-shift" look for the movie camera, replays and photos: sharp across the ball,
+// softly blurred above and below, like a photo of a real toy. Two passes, across and then down.
+const tiltShader = () => ({
+  uniforms: { tDiffuse: { value: null }, delta: { value: new THREE.Vector2() }, focus: { value: 0.5 }, spread: { value: 0.15 } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 delta; uniform float focus; uniform float spread; varying vec2 vUv;
+    void main() {
+      vec2 d = delta * clamp(abs(vUv.y - focus) / spread - 1.0, 0.0, 2.5);
+      vec4 s = texture2D(tDiffuse, vUv) * 0.1633;
+      s += (texture2D(tDiffuse, vUv - d) + texture2D(tDiffuse, vUv + d)) * 0.1531;
+      s += (texture2D(tDiffuse, vUv - 2.0 * d) + texture2D(tDiffuse, vUv + 2.0 * d)) * 0.12245;
+      s += (texture2D(tDiffuse, vUv - 3.0 * d) + texture2D(tDiffuse, vUv + 3.0 * d)) * 0.0918;
+      s += (texture2D(tDiffuse, vUv - 4.0 * d) + texture2D(tDiffuse, vUv + 4.0 * d)) * 0.051;
+      gl_FragColor = s;
+    }`,
+});
+const tiltH = new ShaderPass(tiltShader()), tiltV = new ShaderPass(tiltShader());
+composer.addPass(tiltH); composer.addPass(tiltV);
 composer.addPass(new OutputPass());
 
 // soft studio reflections: glossy plastic, glass marbles and metal rails come alive
@@ -1014,10 +1033,10 @@ function positionSelPop() {
 // ================================================================ balls
 const ballGeo = new Map();
 const ballMats = new Map();
-function ballMaterial(type, color) {
-  const k = type + color;
+function ballMaterial(type, color, look = '') {
+  const k = type + color + look;
   if (!ballMats.has(k)) {
-    const o = { map: TX.marbleTexture(color, type), emissive: color, emissiveIntensity: S.night ? 0.55 : 0 };
+    const o = { map: TX.marbleTexture(color, type, look), emissive: color, emissiveIntensity: S.night ? 0.55 : 0 };
     let m;
     if (type === 'glass') m = new THREE.MeshPhysicalMaterial({ ...o, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.03 });
     else if (type === 'wood') m = new THREE.MeshStandardMaterial({ ...o, roughness: 0.55 });
@@ -1028,9 +1047,9 @@ function ballMaterial(type, color) {
   }
   return ballMats.get(k);
 }
-function ballMesh(type, color, r) {
+function ballMesh(type, color, r, look) {
   if (!ballGeo.has(r)) ballGeo.set(r, new THREE.SphereGeometry(r, 28, 18));
-  const m = new THREE.Mesh(ballGeo.get(r), ballMaterial(type, color));
+  const m = new THREE.Mesh(ballGeo.get(r), ballMaterial(type, color, look));
   m.castShadow = true;
   return m;
 }
@@ -1039,7 +1058,8 @@ function spawnBall(pos, vel) {
   const b = new Ball(S.ballType, pos, vel);
   // every hidden star found: golden marbles from then on
   b.color = hidden.golden() ? '#f5c242' : BALL_COLORS[colorIdx++ % BALL_COLORS.length];
-  b.mesh = ballMesh(b.type, b.color, b.r);
+  b.look = S.look;
+  b.mesh = ballMesh(b.type, b.color, b.r, b.look);
   b.mesh.userData.ball = b;
   b.mesh.position.copy(b.pos);
   ballGroup.add(b.mesh);
@@ -1131,6 +1151,7 @@ function onWorldEvent(type, a, b, c, d) {
   visitors.react(type, ball, a);
   if (type === 'impact') {
     sound.impact(b, c.sound, a.type, a.pos.distanceTo(camPos));
+    if (a === S.follow && (S.cam === 'chase' || S.cam === 'pov') && b > 0.5) shake.t = Math.min(1, shake.t + (b - 0.5) * 0.7);
     if (d && d.device instanceof TrampolineDevice) { d.device.bounce(); if (a.ch) a.ch.tramp = true; }
     if (d && d.device instanceof BellDevice) { d.device.ring(b); sound.bell(d.device.size, b); }
   } else if (type === 'kick') { if (b.device instanceof BumperDevice) b.device.flash(); sound.bumper(); }
@@ -1505,7 +1526,15 @@ function updateCamera(dt) {
     camera.lookAt(camera.position.clone().add(look));
     camState.yawOff *= Math.exp(-dt * 1.5); camState.pitchOff *= Math.exp(-dt * 1.5);
   }
+  // a big hit shakes the chase and ride cameras a little: trauma squared, fading fast
+  if (shake.t > 0.002 && !reduceMotion()) {
+    const a = shake.t * shake.t, n = performance.now() * 0.035;
+    camera.position.add(V(Math.sin(n * 1.3), Math.sin(n * 1.7 + 1), Math.sin(n * 1.1 + 2)).multiplyScalar(0.005 * a));
+    camera.rotateZ(Math.sin(n * 0.9) * 0.035 * a);
+  }
+  shake.t = Math.max(0, shake.t - dt * 2.2);
 }
+const shake = { t: 0 };
 
 // ================================================================ replay
 function startReplay() {
@@ -1862,6 +1891,11 @@ function pickTool(k) {
   if (S.move) endMove(false);
   if (t.type === 'append') {
     if (TOOLS[S.tool].type !== 'tool') S.tool = 'select';
+    if (S.kidsize && touchScreen() && S.hover !== k && activePort()) {
+      S.hover = k; updateGhost(); setHint('👆 ' + L('Tap it again to build it here')); renderDock();
+      return;
+    }
+    S.hover = null;
     tryAppend(k);
   } else {
     S.tool = S.tool === k && k !== 'select' ? 'select' : k;
@@ -1981,15 +2015,26 @@ function renderTop() {
   document.querySelector('[data-proxy="btnSpeed"]').classList.toggle('on', S.timeScale !== 1);
   $('langLabel').textContent = getLang() === 'he' ? 'English' : 'עברית';
 }
+// looks for the marbles: only the paint changes, never the physics. Stickers unlock the fancy ones.
+const LOOKS = [['', '✨', 'Classic', 0], ['stripes', '🍬', 'Candy stripes', 0], ['galaxy', '🌌', 'Galaxy', 5], ['smiley', '🙂', 'Smiley', 8]];
+S.look = store.get('bc.look', '');
+function lookRow() {
+  const n = Object.keys(store.get('bc.stickers', {})).length;
+  return `<div class="looks"><span class="sub">${L('Look')}</span>${LOOKS.map(([k, ico, name, need]) => need > n
+    ? `<button class="lk locked" disabled title="${esc(L('{0} stickers unlock this', need))}">🔒<small>${need}</small></button>`
+    : `<button class="lk${S.look === k ? ' on' : ''}" data-look="${k}" title="${esc(L(name))}">${ico}</button>`).join('')}</div>`;
+}
 function fillBallMenu(menu) {
   menu.innerHTML = Object.keys(BALL_TYPES).map(k => {
     const d = BALL_TYPES[k], m = d.mass ?? d.density * 4 / 3 * Math.PI * d.radius ** 3;
     const facts = `${(m * 1000).toFixed(1)} ${L('g')} · ${(d.radius * 2000).toFixed(0)} mm · ${L('bounce')} ${d.restitution}${d.k > 0.5 ? ' · ' + L('hollow') : ''}`;
     return `<button data-ball="${k}" class="${k === S.ballType ? 'on' : ''}"><span class="balldot" style="background:${BALL_LOOK[k]}"></span><span><b>${L(d.name)}</b><span class="sub">${L(d.desc)}<br>${facts}</span></span></button>`;
-  }).join('');
+  }).join('') + lookRow();
 }
 $('btnBall').onclick = () => openMenu($('ballMenu'), $('btnBall'), fillBallMenu);
 $('ballMenu').onclick = (e) => {
+  const lk = e.target.closest('[data-look]');
+  if (lk) { S.look = lk.dataset.look; store.set('bc.look', S.look); sound.click(); fillBallMenu($('ballMenu')); return; }
   const b = e.target.closest('[data-ball]');
   if (!b) return;
   const d = BALL_TYPES[b.dataset.ball];
@@ -3590,12 +3635,14 @@ const OPTS = {
   haptics: { get: () => S.haptics, set: (v) => { S.haptics = v; buzz(20); } },
   lite: { get: () => S.lite, set: (v) => setLite(v) },
   fps: { get: () => S.fps, set: (v) => { S.fps = v; $('fpsMeter').classList.toggle('hidden', !v); } },
+  kidsize: { get: () => S.kidsize, set: (v) => { S.kidsize = v; document.body.classList.toggle('kidsize', v); renderDock(); } },
 };
 $('optHaptics').classList.toggle('hidden', !(navigator.vibrate && touchScreen()));
 
 // ---------------------------------------------------------------- Lite mode and the frame-time meter
 // Lite: fewer pixels, no shadows or night glow, and a third of the prediction work per frame
-S.lite = store.get('bc.lite', false); S.fps = store.get('bc.fps', false);
+S.lite = store.get('bc.lite', false); S.fps = store.get('bc.fps', false); S.kidsize = store.get('bc.kidsize', false);
+document.body.classList.toggle('kidsize', S.kidsize);
 function setLite(on) {
   S.lite = on;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, on ? 1.25 : 2));
@@ -3809,7 +3856,18 @@ function frame(now) {
   processPhotos();
 }
 function renderFrame() {
-  if (S.night && !S.lite) composer.render(); else renderer.render(scene, camera);
+  const tilt = (S.photo || S.cam === 'movie' || !!S.replay) && !S.lite;
+  bloom.enabled = S.night && !S.lite;
+  tiltH.enabled = tiltV.enabled = tilt;
+  if (tilt) {
+    // keep the sharp band on the ball being watched (or the middle of the view)
+    const p = S.replay ? S.replay.focus.pos : S.cam === 'movie' && S.follow ? S.follow.pos : controls.target;
+    _v.copy(p).project(camera);
+    const f = THREE.MathUtils.clamp((_v.y + 1) / 2, 0.2, 0.8);
+    tiltH.uniforms.delta.value.set(2.2 / window.innerWidth, 0); tiltV.uniforms.delta.value.set(0, 2.2 / window.innerHeight);
+    tiltH.uniforms.focus.value = tiltV.uniforms.focus.value = f;
+  }
+  if (bloom.enabled || tilt) composer.render(); else renderer.render(scene, camera);
   renderCornerCam();
 }
 
