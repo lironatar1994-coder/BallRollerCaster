@@ -170,6 +170,8 @@ const HE = {
   'Use {0} pieces or fewer': 'עד {0} חלקים', '🔗 Solution link copied — send it back!': '🔗 הקישור לפתרון הועתק — שלחו בחזרה!',
   '🧩 A puzzle from a friend: “{0}”. Finish the run with the pieces in the box!': '🧩 פאזל מחבר: “{0}”. השלימו את המסלול עם החלקים שבקופסה!', 'A puzzle': 'פאזל',
   '🧩 Your friend solved “{0}”! Open it to watch their solution?': '🧩 החבר פתר את “{0}”! לפתוח ולראות את הפתרון?', 'your puzzle': 'הפאזל שלכם',
+  'Star hunter': 'צייד כוכבים', 'Golden marbles': 'גולות זהב', 'You found a hidden star! {0} / {1} in this room': 'מצאתם כוכב נסתר! {0} / {1} בחדר הזה',
+  'All the hidden stars in this room! 🌟🌟🌟': 'כל הכוכבים הנסתרים בחדר הזה! 🌟🌟🌟', 'Every hidden star found — your marbles are golden now!': 'כל הכוכבים הנסתרים נמצאו — הגולות שלכם מזהב עכשיו!',
   'Paths': 'מסילות', 'Tricks': 'תעלולים', 'Switches': 'מפצלים', 'Lifts': 'מעליות', 'Goals': 'שערים', 'Music & room': 'מוזיקה וחדר',
   'Settings': 'הגדרות', 'Done': 'סיום', 'Building helpers': 'עזרים לבנייה', 'Room and screen': 'חדר ומסך', 'Build pad by the ring': 'לוח בנייה ליד הטבעת',
   'Lite mode (smoother on slow phones)': 'מצב קל (חלק יותר בטלפונים איטיים)', 'Show frame time': 'הצגת זמן פריים', 'Running slowly? Tap here for Lite mode': 'רץ לאט? הקישו כאן למצב קל',

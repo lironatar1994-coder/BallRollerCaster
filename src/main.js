@@ -15,6 +15,7 @@ import { createVisitors } from './visitors.js';
 import { createBuildPad } from './buildpad.js';
 import { createFeel, reduceMotion } from './feel.js';
 import { createPlay } from './play.js';
+import { createCollectibles } from './collect.js';
 import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
 import { Sound, ROLL_FAMILY } from './audio.js';
 import { ICONS } from './icons.js';
@@ -979,7 +980,8 @@ function ballMesh(type, color, r) {
 let colorIdx = 0;
 function spawnBall(pos, vel) {
   const b = new Ball(S.ballType, pos, vel);
-  b.color = BALL_COLORS[colorIdx++ % BALL_COLORS.length];
+  // every hidden star found: golden marbles from then on
+  b.color = hidden.golden() ? '#f5c242' : BALL_COLORS[colorIdx++ % BALL_COLORS.length];
   b.mesh = ballMesh(b.type, b.color, b.r);
   b.mesh.userData.ball = b;
   b.mesh.position.copy(b.pos);
@@ -2409,6 +2411,10 @@ const app = {
 };
 const insight = createInsight(app);
 const visitors = createVisitors(app);
+const hidden = createCollectibles({
+  scene, sound, store, world, sparkle, sticker: (id) => sticker(id), news: (...a) => insight.news(...a), roomCount: ROOM_KINDS.length,
+  get room() { return room; },
+});
 const play = createPlay({
   S, $, world, sound, TOOLS, ICONS, esc, SAVE_V, buzz, schedulePrediction, closeMenus, closeModals, toast, shareLink, startChallenge,
   get room() { return room; }, get pieces() { return pieces; },
@@ -2667,6 +2673,7 @@ const STICKERS = [
   ['first-goal', '🎯', 'First goal'], ['loop', '🌀', 'Upside down'], ['splash', '💦', 'Splash!'], ['photo', '📸', 'Say cheese'],
   ['award', '🏆', 'Record breaker'], ['classic', '🏅', 'A Classic'], ['visitor', '👧', 'A friend came by'], ['five-star', '⭐', 'Four and a half stars'],
   ['rooms', '🏠', 'Room explorer'], ['daily', '📅', 'Daily puzzler'], ['builder', '🧱', '50 pieces placed'], ['gadgets', '⚙️', 'Gadget fan'],
+  ['stars', '🌟', 'Star hunter'], ['golden', '✨', 'Golden marbles'],
 ];
 function sticker(id) {
   const got = store.get('bc.stickers', {});
@@ -3303,7 +3310,7 @@ function switchRoom(kind, opts = {}) {
   movie.bounds = room.bounds;
   sunDir = room.sun.position.clone().sub(room.sun.target.position).normalize();
   room.setNight(S.night);
-  contactShadows();
+  contactShadows(); hidden.build(room);
   S.name = store.get('bc.name.' + kind, '');
   history = []; histLabels = []; hIdx = -1;
   const saved = store.get(roomKey(kind), null);
@@ -3322,7 +3329,7 @@ function openRooms() {
   const stars = starStore();
   $('roomsList').innerHTML = ROOM_KINDS.map(r => {
     const n = CHALLENGES.filter(c => (c.room || 'kids') === r.kind).reduce((a, c) => a + (stars[c.id] || 0), 0);
-    return `<button class="roomCard${r.kind === room.kind ? ' here' : ''}" data-room="${r.kind}"><span class="big">${r.icon}</span><b>${L(r.name)}</b><span class="small muted">★ ${n}</span>${r.kind === room.kind ? `<span class="tag">${L('You are here')}</span>` : ''}</button>`;
+    return `<button class="roomCard${r.kind === room.kind ? ' here' : ''}" data-room="${r.kind}"><span class="big">${r.icon}</span><b>${L(r.name)}</b><span class="small muted">★ ${n} · 🌟 ${hidden.countIn(r.kind)}/${hidden.PER_ROOM}</span>${r.kind === room.kind ? `<span class="tag">${L('You are here')}</span>` : ''}</button>`;
   }).join('');
   $('roomsModal').classList.remove('hidden');
 }
@@ -3619,6 +3626,7 @@ function everyFrame(dt, adv, now) {
   // a blocked piece pulses, so it reads as "no" without relying on red alone
   ghostMats.bad.opacity = reduceMotion() ? 0.3 : 0.28 + 0.16 * Math.sin(now * 0.012);
   frameStatTick(dt, now);
+  hidden.tick(dt, now);
   feel.finaleTick(now, dt);
   feel.energyTick();
   for (let i = snaps.length - 1; i >= 0; i--) {
@@ -3778,6 +3786,7 @@ fitView(true);
 assembleIn();
 store.set('bc.visitedRooms', [...new Set([...store.get('bc.visitedRooms', []), room.kind])]);
 insight.renderWindow();
+hidden.build(room);
 syncOptions();
 if (S.lite) setLite(true);
 $('fpsMeter').classList.toggle('hidden', !S.fps);
