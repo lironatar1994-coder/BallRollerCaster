@@ -181,6 +181,7 @@ const HE = {
   'Score after pressing a button': 'שער אחרי לחיצה על כפתור', '3 goals': '3 שערים', '5 goals': '5 שערים', 'Goals after a button press: {0}': 'שערים אחרי לחיצה: {0}',
   'Fast & Slow': 'מהר ולאט', 'With a Speed Splitter, send balls into two different goals.': 'עם מפצל מהירות, שלחו כדורים לשני שערים שונים.',
   'Two different goals': 'שני שערים שונים', 'Three different goals': 'שלושה שערים שונים',
+  'Back to where you are building': 'חזרה למקום שבו בונים',
   'Paths': 'מסילות', 'Tricks': 'תעלולים', 'Switches': 'מפצלים', 'Lifts': 'מעליות', 'Goals': 'שערים', 'Music & room': 'מוזיקה וחדר',
   'Settings': 'הגדרות', 'Done': 'סיום', 'Building helpers': 'עזרים לבנייה', 'Room and screen': 'חדר ומסך', 'Build pad by the ring': 'לוח בנייה ליד הטבעת',
   'Lite mode (smoother on slow phones)': 'מצב קל (חלק יותר בטלפונים איטיים)', 'Show frame time': 'הצגת זמן פריים', 'Running slowly? Tap here for Lite mode': 'רץ לאט? הקישו כאן למצב קל',

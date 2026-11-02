@@ -646,6 +646,12 @@ body.sel-sheet #dockMain, body.sel-sheet #settings { display: none !important; }
 #selPop.aside { left: auto; right: 4px; top: calc(var(--topH, 50px) + 6px); bottom: calc(var(--dockH, 100px) + 8px); transform: none; width: 290px; min-width: 0; max-width: 46vw; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px; gap: 4px; }
 body.sel-aside #camPad, body.sel-aside #predPill { display: none; }
 #fpsMeter { position: fixed; left: 10px; top: calc(var(--topH, 60px) + 8px); z-index: 6; pointer-events: none; font: 600 11px/1 ui-monospace, Menlo, Consolas, monospace; background: rgba(43, 45, 66, 0.75); color: #fff; padding: 4px 8px; border-radius: 8px; }
+/* the ring went off the screen: a button at the edge points back to it */
+#ringEdge { position: fixed; z-index: 5; transform: translate(-50%, -50%); width: 46px; height: 46px; border-radius: 50%; background: #ffc83d; color: #2b2d42; box-shadow: var(--shadow); display: grid; place-items: center; }
+#ringEdge i { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; font-size: 22px; font-weight: 800; transform-origin: 50% 50%; }
+#ringEdge i { justify-items: end; padding-inline-end: 1px; }
+#ringEdge b { font-size: 15px; background: #fff; border-radius: 50%; width: 22px; height: 22px; display: grid; place-items: center; }
+body.riding #ringEdge, body.photo #ringEdge, body.replaying #ringEdge { display: none !important; }
 /* the music box's song: four lanes by sixteen steps */
 #selPop .song { display: flex; flex-direction: column; gap: 3px; padding: 2px 0 4px; }
 #selPop .srow { display: grid; grid-template-columns: repeat(16, minmax(10px, 1fr)); gap: 2px; }

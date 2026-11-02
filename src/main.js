@@ -16,7 +16,7 @@ import { createBuildPad } from './buildpad.js';
 import { createFeel, reduceMotion } from './feel.js';
 import { createPlay } from './play.js';
 import { createCollectibles } from './collect.js';
-import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, MusicBoxDevice, LANE_NOTES, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
+import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, MusicBoxDevice, LANE_NOTES, GoalDevice, PlinkoDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
 import { Sound, ROLL_FAMILY } from './audio.js';
 import { ICONS } from './icons.js';
 import * as TX from './textures.js';
@@ -942,22 +942,61 @@ function keepInView() {
 }
 // the little tag under the active ring: how high it is and how fast the ball gets there
 function positionRingTag(now) {
-  const el = $('ringTag'), I = S.ringInfo;
+  const el = $('ringTag'), I = S.ringInfo, edge = $('ringEdge');
   const show = I && S.cam === 'orbit' && !S.photo && !S.replay && !S.move && markerGroup.visible;
   el.classList.toggle('hidden', !show);
-  if (!show) return;
+  goalLine.visible = !!show && !!I.goal;
+  if (!show) { edge.classList.add('hidden'); return; }
   if (now - I.at > 250) {
     I.at = now;
     const v = S.predict ? predSpeedAt(I.p) : null;
-    const html = `${S.arrows ? `<button class="plus${padOpen() ? ' on' : ''}" title="${L('Build arrows')}">＋</button>` : ''}<b>↧ ${(I.h * 100).toFixed(0)} ${L('cm')}</b>${v != null ? ` · ⚡ ${v.toFixed(2)} ${L('m/s')}` : ''}${S.insert ? ` · <span class="ins">⤵ ${L('inserting')}</span>` : ''}`;
+    // the nearest goal: how far across, and how much lower
+    const g = nearestGoal(I.p);
+    I.goal = g;
+    if (g) { goalLine.geometry.setFromPoints([I.p, g]); goalLine.computeLineDistances(); }
+    const gTxt = g ? ` · 🎯 ${(Math.hypot(g.x - I.p.x, g.z - I.p.z) * 100).toFixed(0)} ${L('cm')}${I.p.y - g.y > 0.02 ? ` ↘${((I.p.y - g.y) * 100).toFixed(0)}` : ''}` : '';
+    const html = `${S.arrows ? `<button class="plus${padOpen() ? ' on' : ''}" title="${L('Build arrows')}">＋</button>` : ''}<b>↧ ${(I.h * 100).toFixed(0)} ${L('cm')}</b>${v != null ? ` · ⚡ ${v.toFixed(2)} ${L('m/s')}` : ''}${gTxt}${S.insert ? ` · <span class="ins">⤵ ${L('inserting')}</span>` : ''}`;
     if (html !== I.html) { el.innerHTML = html; I.html = html; }
   }
   _v.copy(I.p).project(camera);
   const r = canvas.getBoundingClientRect();
-  el.style.left = (r.left + (_v.x + 1) / 2 * r.width) + 'px';
-  el.style.top = (r.top + (1 - _v.y) / 2 * r.height + 26) + 'px';
-  el.style.visibility = _v.z > 1 ? 'hidden' : 'visible';
+  const x = r.left + (_v.x + 1) / 2 * r.width, y = r.top + (1 - _v.y) / 2 * r.height;
+  el.style.left = x + 'px';
+  el.style.top = (y + 26) + 'px';
+  // off the screen (or behind the camera): an arrow at the edge points the way back to it
+  const off = _v.z > 1 || x < r.left + 20 || x > r.right - 20 || y < r.top + 60 || y > r.bottom - 60;
+  el.style.visibility = off ? 'hidden' : 'visible';
+  edge.classList.toggle('hidden', !off);
+  if (off) {
+    let dx = x - (r.left + r.width / 2), dy = y - (r.top + r.height / 2);
+    if (_v.z > 1) { dx = -dx; dy = -dy; }
+    const k = Math.min((r.width / 2 - 40) / Math.max(1e-6, Math.abs(dx)), (r.height / 2 - 90) / Math.max(1e-6, Math.abs(dy)));
+    edge.style.left = (r.left + r.width / 2 + dx * k) + 'px';
+    edge.style.top = (r.top + r.height / 2 + dy * k) + 'px';
+    edge.querySelector('i').style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+  }
 }
+// a faint dashed line from the ring to the nearest goal, to aim for
+const goalLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: '#ffb300', dashSize: 0.02, gapSize: 0.015, transparent: true, opacity: 0.7, depthTest: false }));
+goalLine.renderOrder = 8; goalLine.visible = false; goalLine.frustumCulled = false;
+scene.add(goalLine);
+function nearestGoal(p) {
+  let best = null, bd = Infinity;
+  for (const dv of world.devices) {
+    const c = dv instanceof GoalDevice ? V(dv.c.x, dv.yTop, dv.c.z) : dv instanceof PlinkoDevice ? dv.o.clone() : null;
+    if (!c) continue;
+    const dist = c.distanceToSquared(p);
+    if (dist < bd && dist > 0.0004) { bd = dist; best = c; }
+  }
+  return best;
+}
+$('ringEdge').onclick = () => {
+  const I = S.ringInfo;
+  if (!I) return;
+  const off = camera.position.clone().sub(controls.target);
+  flyTo(I.p.clone().add(off), I.p.clone());
+  sound.click();
+};
 const _v = V();
 function positionSelPop() {
   const el = $('selPop');
