@@ -24,10 +24,12 @@ try {
     $nodeVersion = [version]((& node --version).TrimStart('v'))
     Check-Exit 'Node.js is unavailable.'
     if ($nodeVersion -lt [version]'20.6.0') { throw 'Node.js 20.6 or newer is required.' }
-    $scripts = @(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src'), (Join-Path $projectRoot 'tools') -File | Where-Object { $_.Extension -in '.js', '.mjs' }) + @(Get-Item -LiteralPath (Join-Path $projectRoot 'serve.cjs'))
+    $scripts = @(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src'), (Join-Path $projectRoot 'tools'), (Join-Path $projectRoot 'server') -File | Where-Object { $_.Extension -in '.js', '.mjs', '.cjs' }) + @(Get-Item -LiteralPath (Join-Path $projectRoot 'serve.cjs'))
     foreach ($script in $scripts) { & node --check $script.FullName; Check-Exit "Syntax error in $($script.Name)." }
     # imports resolve, and the real physics engine still carries every ball to a goal
     & node tools/check.mjs; Check-Exit 'Pre-deploy check failed.'
+    # the coaster library: publish, search, filters, counters and delete, on a throwaway folder
+    & node tools/api-check.mjs; Check-Exit 'Coaster library check failed.'
     if ([IO.File]::ReadAllText((Join-Path $projectRoot 'deploy_linux.sh')).Contains("`r")) { throw 'deploy_linux.sh must use LF line endings.' }
     & git diff --check; Check-Exit 'Whitespace errors in the working tree.'
     if ($ValidateOnly) { Write-Host '[SUCCESS] Validation passed. Nothing was published.'; return }
@@ -98,7 +100,7 @@ rm -f -- "`$archive"
     $live = (Invoke-WebRequest -Uri "$siteUrl/release.txt" -UseBasicParsing -TimeoutSec 20 -Headers @{ 'Cache-Control' = 'no-cache' }).Content
     $liveText = if ($live -is [byte[]]) { [Text.Encoding]::UTF8.GetString($live) } else { [string]$live }
     if ($liveText.Trim() -ne $commit) { throw "Public release verification failed: live is '$($liveText.Trim())', expected $commit." }
-    foreach ($path in @('/', '/src/main.js', '/vendor/three.module.js')) {
+    foreach ($path in @('/', '/src/main.js', '/vendor/three.module.js', '/api/health')) {
         $page = Invoke-WebRequest -Uri "$siteUrl$path" -UseBasicParsing -TimeoutSec 20
         if ($page.StatusCode -ne 200) { throw "$siteUrl$path returned HTTP $($page.StatusCode)." }
     }

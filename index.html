@@ -28,7 +28,7 @@
 
 <!-- top: camera + play -->
 <header id="top">
-  <div class="logo"><span class="b1">Ball</span><span class="b2">Coaster</span></div>
+  <button id="btnMenu" class="logo" data-i18n-title="Menu" title="Menu"><i class="burger">☰</i><span class="b1">Ball</span><span class="b2">Coaster</span></button>
   <div class="grp seg" id="camModes" data-menu>
     <button data-cam="orbit" class="on" data-i18n-title="Build view · 1" title="Build view · 1"><i>🛠️</i><span data-i18n>Build</span></button>
     <button data-cam="chase" data-i18n-title="Chase a ball · 2" title="Chase a ball · 2"><i>🎥</i><span data-i18n>Chase</span></button>
@@ -46,6 +46,7 @@
   </div>
   <div class="spacer"></div>
   <div class="grp" id="rightGrp">
+    <button id="btnExplore" class="explore" data-i18n-title="Explore coasters other players built" title="Explore coasters other players built"><i>🌍</i><span data-i18n>Explore</span></button>
     <button id="btnChallenges" class="trophy" data-i18n-title="Missions with stars" title="Missions with stars"><i>🏆</i><span data-i18n>Challenges</span></button>
     <button id="btnUndo" data-i18n-title="Undo · Ctrl+Z" title="Undo · Ctrl+Z"><i>↶</i></button>
     <button id="btnRedo" data-i18n-title="Redo · Ctrl+Y" title="Redo · Ctrl+Y"><i>↷</i></button>
@@ -69,6 +70,7 @@
   <button id="btnRooms"><i>🏠</i><span data-i18n>Rooms</span></button>
   <button id="btnGallery"><i>🖼️</i><span data-i18n>My coasters</span></button>
   <button id="btnAlbum"><i>📸</i><span data-i18n>Photo album</span></button>
+  <button id="btnPublish"><i>🌍</i><span data-i18n>Publish this coaster</span></button>
   <button id="btnShare"><i>🔗</i><span data-i18n>Copy share link</span></button>
   <button id="btnPuzzle"><i>🧩</i><span data-i18n>Make a puzzle for a friend</span></button>
   <button id="btnNote"><i>📝</i><span data-i18n>Leave a note here</span></button>
@@ -84,6 +86,19 @@
   <button data-act="export" data-i18n>💾 Save to file</button>
   <button data-act="import" data-i18n>📂 Open a file</button>
   <input type="file" id="fileIn" accept=".json" hidden>
+</div>
+
+<!-- trying a coaster from Explore -->
+<div id="visitBar" class="hidden">
+  <div class="vbInfo"><small data-i18n>🌍 Trying a coaster from Explore</small><b id="vbName"></b><span id="vbBy"></span></div>
+  <div class="vbStats"><span id="vbPlays"></span><span id="vbLikes"></span></div>
+  <div class="vbBtns">
+    <button id="vbLike" class="vbLike" data-i18n-title="Like this coaster" title="Like this coaster"><i>🤍</i><span data-i18n>Like</span></button>
+    <button id="vbCopy" data-i18n-title="Keep a copy in My coasters to build on" title="Keep a copy in My coasters to build on"><i>💾</i><span data-i18n>Save a copy</span></button>
+    <button id="vbReport" class="vbIcon" data-i18n-title="Report this coaster" title="Report this coaster"><i>🚩</i></button>
+    <button id="vbBack" class="vbBack"><i>✕</i><span data-i18n>Back to mine</span></button>
+  </div>
+  <div id="vbAsk" class="vbAsk hidden"><span data-i18n>Report this coaster as unkind or unsafe?</span><button id="vbAskYes" data-i18n>Report</button><button id="vbAskNo" data-i18n>Cancel</button></div>
 </div>
 
 <!-- challenge mission card -->
@@ -228,13 +243,90 @@
 <div id="galleryModal" class="modal hidden">
   <div class="card-modal wide">
     <h2 data-i18n>🖼️ My coasters</h2>
-    <div class="row"><input id="galName" maxlength="40" data-i18n-placeholder="Name your coaster" placeholder="Name your coaster"><button id="galSave" class="primary" data-i18n>💾 Save this one</button></div>
+    <div class="row"><input id="galName" maxlength="40" data-i18n-placeholder="Name your coaster" placeholder="Name your coaster"><button id="galSave" class="primary" data-i18n>💾 Save this one</button><button id="galPublish" class="primary pub" data-i18n>🌍 Publish</button></div>
+    <div id="galPubWrap" class="hidden"><h3 data-i18n>🌍 Published by you</h3><div id="galPub"></div><h3 data-i18n>💾 Saved</h3></div>
     <div id="galList"></div>
     <h3 data-i18n>Examples to try</h3>
     <div id="galExamples"></div>
     <button data-act="close" class="ghost" data-i18n>Close</button>
   </div>
 </div>
+<!-- the main menu -->
+<div id="menuModal" class="modal hidden">
+  <div class="mainMenu">
+    <div class="mmHead">
+      <div class="mmLogo"><span class="b1">Ball</span><span class="b2">Coaster</span><i class="mmBall"></i></div>
+      <p class="mmTag" data-i18n>Build marble runs with real physics, then try coasters made by players everywhere.</p>
+    </div>
+    <button id="mmContinue" class="mmPlay"><i>▶</i><span id="mmContinueLabel">Continue building</span></button>
+    <div class="mmTiles">
+      <button data-mm="explore" class="t1"><i>🌍</i><b data-i18n>Explore</b><small data-i18n>Try coasters other players built</small></button>
+      <button data-mm="mine" class="t2"><i>💾</i><b data-i18n>My coasters</b><small data-i18n>Save, open and publish yours</small></button>
+      <button data-mm="missions" class="t3"><i>🏆</i><b data-i18n>Missions</b><small data-i18n>Challenges with stars</small></button>
+      <button data-mm="rooms" class="t4"><i>🏠</i><b data-i18n>Rooms</b><small data-i18n>Kitchen, garden, attic and more</small></button>
+    </div>
+    <div class="mmStrip">
+      <div class="mmStripHead"><b data-i18n>🔥 Popular right now</b><button data-mm="explore" class="mmLink" data-i18n>See all ›</button></div>
+      <div id="mmPopular" class="mmCards"></div>
+    </div>
+    <div class="mmFoot">
+      <button data-mm="new"><i>🧸</i><span data-i18n>New coaster</span></button>
+      <button data-mm="help"><i>❔</i><span data-i18n>How to play</span></button>
+      <button data-mm="settings"><i>⚙️</i><span data-i18n>Settings</span></button>
+      <button data-mm="lang"><i>🌐</i><span id="mmLang">עברית</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- explore: coasters published by players -->
+<div id="exploreModal" class="modal hidden">
+  <div class="exPanel">
+    <header class="exHead">
+      <div class="exTitle"><h2 data-i18n>🌍 Explore coasters</h2><button class="exClose" data-act="close" data-i18n-title="Close" title="Close">✕</button></div>
+      <label class="exSearch"><i>🔍</i><input id="exQ" type="search" enterkeyhint="search" autocomplete="off" maxlength="60" data-i18n-placeholder="Search coasters or builders" placeholder="Search coasters or builders"><button id="exQClear" class="hidden" data-i18n-title="Clear" title="Clear">✕</button></label>
+      <div class="exRow">
+        <div class="exSort" id="exSort">
+          <button data-sort="popular" class="on"><i>🔥</i><span data-i18n>Popular</span></button>
+          <button data-sort="new"><i>✨</i><span data-i18n>New</span></button>
+          <button data-sort="loved"><i>❤️</i><span data-i18n>Loved</span></button>
+        </div>
+        <button id="exFiltersBtn" class="exFiltersBtn"><i>⚙</i><span data-i18n>Filters</span><b id="exFilterCount" class="hidden"></b></button>
+      </div>
+      <div id="exRooms" class="exChips"></div>
+      <div id="exFilters" class="exFilters"></div>
+    </header>
+    <div class="exBody" id="exBody">
+      <div id="exMeta" class="exMeta"></div>
+      <div id="exGrid" class="exGrid"></div>
+      <div id="exMore" class="exMore"></div>
+    </div>
+  </div>
+</div>
+
+<!-- publish a coaster -->
+<div id="publishModal" class="modal hidden">
+  <div class="card-modal publish">
+    <div id="pubForm" class="pubForm">
+      <h2 data-i18n>🌍 Publish your coaster</h2>
+      <p class="sub" data-i18n>Players everywhere can find it in Explore and try it.</p>
+      <div class="pubPreview"><img id="pubThumb" alt=""><div id="pubFacts" class="pubFacts"></div></div>
+      <label class="field"><span data-i18n>Coaster name</span><input id="pubName" maxlength="40" autocomplete="off"></label>
+      <label class="field"><span data-i18n>Builder name (optional)</span><input id="pubAuthor" maxlength="24" autocomplete="off" data-i18n-placeholder="A nickname, not your real name" placeholder="A nickname, not your real name"></label>
+      <p id="pubWarn" class="pubWarn hidden"></p>
+      <p id="pubErr" class="pubErr hidden" role="alert"></p>
+      <p class="fine" data-i18n>You can unpublish it any time in My coasters.</p>
+      <div class="pubBtns"><button data-act="close" class="ghost" data-i18n>Cancel</button><button id="pubGo" class="primary"><i>🌍</i><span data-i18n>Publish</span></button></div>
+    </div>
+    <div id="pubDone" class="pubDone hidden">
+      <div class="pubCheer">🎉</div>
+      <h2 data-i18n>It's live!</h2>
+      <p class="sub" id="pubDoneMsg"></p>
+      <div class="pubLink"><input id="pubLink" readonly><button id="pubCopy" class="primary" data-i18n>🔗 Copy link</button></div>
+      <div class="pubBtns"><button id="pubSee" class="ghost" data-i18n>See it in Explore</button><button data-act="close" class="primary" data-i18n>Done</button></div>
+    </div>
+  </div>
+</div>
+
 <div id="albumModal" class="modal hidden">
   <div class="card-modal wide">
     <h2 data-i18n>📸 Photo album</h2>

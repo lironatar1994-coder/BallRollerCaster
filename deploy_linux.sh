@@ -2,9 +2,12 @@
 
 set -euo pipefail
 
-# Ball Coaster lives at lawebs.co.il/ball-coaster. It is plain static files (no build):
+# Ball Coaster lives at lawebs.co.il/ball-coaster. The game is plain static files (no build):
 # the page, the game modules and the vendored three.js. Only those are published —
 # deploy scripts, tools and the local dev server stay out of the web root.
+# The coaster library (players' published coasters) is a small Node service, server/, run by
+# systemd and reached through nginx at /ball-coaster/api/. Its data lives in /var/lib/ball-coaster
+# and is never replaced by a deploy.
 APP_ROOT="$(pwd)"
 WEB_ROOT="/var/www/ball-coaster"
 SITE_HOST="lawebs.co.il"
@@ -21,8 +24,16 @@ stage="/var/www/ball-coaster.next-$timestamp"
 previous="/var/www/ball-coaster.previous-$timestamp"
 backup_dir="/tmp/ball-coaster-nginx-$timestamp"
 deployment_backup="/root/deployment-backups/ball-coaster-$timestamp.tar.gz"
+API_DIR="/opt/ball-coaster-api"
+API_UNIT="/etc/systemd/system/ball-coaster-api.service"
+API_PORT=4021
+API_DATA="/var/lib/ball-coaster"
+api_stage="/opt/ball-coaster-api.next-$timestamp"
+api_previous="/opt/ball-coaster-api.previous-$timestamp"
 web_swapped=0
 config_changed=0
+api_swapped=0
+unit_changed=0
 committed=0
 
 # back up every nginx file we touch; a file that did not exist is marked so a restore removes it
@@ -51,9 +62,18 @@ rollback() {
       rm -rf -- "$WEB_ROOT"
       if [ -d "$previous" ]; then mv "$previous" "$WEB_ROOT"; fi
     fi
+    # the library goes back to the code (and unit) it ran before; its data was never touched
+    if [ "$api_swapped" -eq 1 ]; then
+      rm -rf -- "$API_DIR"
+      if [ -d "$api_previous" ]; then mv "$api_previous" "$API_DIR"; fi
+    fi
+    if [ "$unit_changed" -eq 1 ]; then restore_file "$API_UNIT"; systemctl daemon-reload; fi
+    if [ "$api_swapped" -eq 1 ] || [ "$unit_changed" -eq 1 ]; then
+      if [ -f "$API_UNIT" ] && [ -d "$API_DIR" ]; then systemctl restart ball-coaster-api; else systemctl disable --now ball-coaster-api 2>/dev/null; fi
+    fi
     nginx -t && systemctl reload nginx
   fi
-  rm -rf -- "$stage" "$backup_dir"
+  rm -rf -- "$stage" "$api_stage" "$backup_dir"
   exit "$status"
 }
 trap 'rollback $?' ERR
@@ -62,7 +82,12 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "[ERROR] Run deploy_linux.sh as root." >&2
   exit 1
 fi
-for f in "${PUBLISHED[@]}"; do
+NODE_BIN="$(command -v node || true)"
+if [ -z "$NODE_BIN" ]; then
+  echo "[ERROR] Node.js is needed for the coaster library." >&2
+  exit 1
+fi
+for f in "${PUBLISHED[@]}" server/api.cjs server/main.cjs; do
   if [ ! -e "$APP_ROOT/$f" ]; then
     echo "[ERROR] Run this script from the Ball Coaster source root ($f is missing)." >&2
     exit 1
@@ -92,6 +117,69 @@ fi
 mv "$stage" "$WEB_ROOT"
 web_swapped=1
 
+# ---- the coaster library service
+echo "[INFO] Installing the coaster library..."
+# players' coasters are kept safe before anything restarts (the last ten copies)
+if [ -d "$API_DATA" ]; then
+  tar -chzf "/root/deployment-backups/ball-coaster-data-$timestamp.tar.gz" -C /var/lib ball-coaster
+  ls -1t /root/deployment-backups/ball-coaster-data-*.tar.gz | tail -n +11 | xargs -r rm -f --
+fi
+rm -rf -- "$api_stage"
+install -d -m 755 "$api_stage"
+cp -a "$APP_ROOT/server/api.cjs" "$APP_ROOT/server/main.cjs" "$api_stage/"
+chown -R root:root "$api_stage"
+chmod 644 "$api_stage"/*.cjs
+if [ -d "$API_DIR" ]; then mv "$API_DIR" "$api_previous"; fi
+mv "$api_stage" "$API_DIR"
+api_swapped=1
+backup_file "$API_UNIT"
+unit_changed=1
+cat > "$API_UNIT" <<UNIT
+[Unit]
+Description=Ball Coaster library (published coasters, lawebs.co.il/ball-coaster/api/)
+After=network.target
+
+[Service]
+ExecStart=$NODE_BIN $API_DIR/main.cjs
+WorkingDirectory=$API_DIR
+Environment=PORT=$API_PORT
+Environment=DATA_DIR=$API_DATA
+Environment=NODE_ENV=production
+DynamicUser=yes
+StateDirectory=ball-coaster
+StateDirectoryMode=0750
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+chmod 644 "$API_UNIT"
+systemctl daemon-reload
+systemctl enable ball-coaster-api >/dev/null 2>&1
+systemctl restart ball-coaster-api
+api_up=0
+for _ in $(seq 1 30); do
+  if curl -fsS --noproxy '*' "http://127.0.0.1:$API_PORT/health" >/dev/null 2>&1; then api_up=1; break; fi
+  sleep 0.5
+done
+if [ "$api_up" -ne 1 ]; then
+  echo "[ERROR] The coaster library did not start." >&2
+  journalctl -u ball-coaster-api -n 30 --no-pager >&2 || true
+  false
+fi
+
 backup_file "$SITE_CONF"
 backup_file "$SITE_SNIPPET"
 config_changed=1
@@ -111,6 +199,16 @@ location = /ball-coaster/.well-known/vee-visitor-signal {
     proxy_set_header X-Visitor-Site-Url "https://lawebs.co.il/ball-coaster/";
     proxy_set_header X-Visitor-IP $remote_addr;
     proxy_set_header X-Visitor-User-Agent $http_user_agent;
+}
+
+# the coaster library: players publish, search and try coasters (server/api.cjs)
+location ^~ /ball-coaster/api/ {
+    client_max_body_size 450k;
+    proxy_pass http://127.0.0.1:4021/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_read_timeout 20s;
 }
 
 # ^~ so no regex location of the other sites on this domain can catch our files.
@@ -184,8 +282,13 @@ if [ "$bare_location" != "$SITE_URL/" ]; then
   echo "[ERROR] /ball-coaster redirects to '$bare_location' instead of $SITE_URL/." >&2
   exit 1
 fi
+# the coaster library answers through nginx
+if ! check -fsS "$SITE_URL/api/health" | grep -q '"ok":true'; then
+  echo "[ERROR] $SITE_URL/api/health does not answer." >&2
+  exit 1
+fi
 # nothing outside the published files is reachable
-for hidden in deploy.ps1 deploy_linux.sh serve.cjs tools/check.mjs package.json; do
+for hidden in deploy.ps1 deploy_linux.sh serve.cjs tools/check.mjs package.json server/api.cjs server/main.cjs; do
   status="$(check -sS -o /dev/null -w '%{http_code}' "$SITE_URL/$hidden")"
   if [ "$status" != "404" ]; then
     echo "[ERROR] $hidden answered HTTP $status; it must not be published." >&2
@@ -225,6 +328,6 @@ publish_sitemap() {
 publish_sitemap || echo "[WARN] Could not update the root robots.txt." >&2
 
 committed=1
-rm -rf -- "$previous" "$backup_dir"
+rm -rf -- "$previous" "$api_previous" "$backup_dir"
 trap - ERR
 echo "[SUCCESS] Ball Coaster deployed at $SITE_URL/"
