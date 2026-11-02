@@ -16,7 +16,7 @@ import { createBuildPad } from './buildpad.js';
 import { createFeel, reduceMotion } from './feel.js';
 import { createPlay } from './play.js';
 import { createCollectibles } from './collect.js';
-import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
+import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, MusicBoxDevice, LANE_NOTES, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
 import { Sound, ROLL_FAMILY } from './audio.js';
 import { ICONS } from './icons.js';
 import * as TX from './textures.js';
@@ -107,6 +107,7 @@ const TOOLS = {
   switch: { label: 'Flip-Flop', type: 'append', piece: 'switch', icon: 'switch', desc: 'Sends balls left, right, left, right…' },
   turnstile: { label: 'Turnstile', type: 'append', piece: 'turnstile', icon: 'turnstile', desc: 'Three ways out: each ball takes the next one' },
   splitter: { label: 'Speed Splitter', type: 'append', piece: 'splitter', icon: 'splitter', desc: 'Fast balls jump the gap, slow ones drop to the chute below' },
+  musicbox: { label: 'Music Box', type: 'place', piece: 'musicbox', icon: 'musicbox', desc: 'Pegs on a turning drum drop balls on the beat — select it to write the song' },
   plinko: { label: 'Plinko', type: 'append', piece: 'plinko', icon: 'plinko', desc: 'Bounce down through the pegs — the middle bin scores 5!' },
   xylo: { label: 'Xylophone', type: 'append', piece: 'xylo', icon: 'xylo', desc: 'Plays a tune as the ball rolls over it' },
   lift: { label: 'Lift', type: 'append', piece: 'lift', icon: 'lift', desc: 'Carries balls back up — build forever-loops' },
@@ -131,7 +132,7 @@ const TOOLS = {
   blocks: { label: 'Blocks', type: 'place', piece: 'blocks', icon: 'blocks', desc: 'Toy blocks: a platform to build on' },
   decor: { label: 'Decoration', type: 'place', piece: 'decor', icon: 'decor', desc: 'Flags, arches, lamps… nice things near the track make it more fun' },
 };
-const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge', turnstile: 'turnstile', splitter: 'splitter', plinko: 'plinko' };
+const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge', turnstile: 'turnstile', splitter: 'splitter', plinko: 'plinko', musicbox: 'musicbox' };
 const pieceLabel = (d) => d.type === 'curve' ? L(d.opts.dir > 0 ? 'Curve Left' : 'Curve Right') : d.type === 'helix' ? L(d.opts.dir > 0 ? 'Spiral Left' : 'Spiral Right') : d.type === 'bridge' ? L('Connector') : L(TOOLS[TYPE_TOOL[d.type]].label);
 const DOCK_TOOLS = ['select', 'hand', 'bridge', 'erase', 'paint', 'boxsel'];
 // sorted by what you want the ball to do next
@@ -141,7 +142,7 @@ const DOCK_TABS = [
   ['switches', 'Switches', ['switch', 'turnstile', 'splitter', 'gate', 'sensor']],
   ['lifts', 'Lifts', ['lift', 'screw', 'elevator']],
   ['goals', 'Goals', ['cup', 'plinko', 'basket', 'catcher', 'dominoes', 'pool']],
-  ['room', 'Music & room', ['xylo', 'bell', 'photo', 'blocks', 'decor']],
+  ['room', 'Music & room', ['musicbox', 'xylo', 'bell', 'photo', 'blocks', 'decor']],
   ['parts', '⭐ My parts', []],
 ];
 // option values: numbers in cm are shown with the local unit; text values are translated
@@ -154,6 +155,7 @@ const OPTIONS = {
   loop: [['radius', 'Size', [[0.07, 'S'], [0.08, 'M'], [0.11, 'L']]]],
   splitter: [['speed', 'Splits at', [[0.6, '0.6 m/s'], [0.75, '0.75 m/s'], [0.9, '0.9 m/s']]]],
   plinko: [['size', 'Height', [[0.2, cm], [0.26, cm], [0.34, cm]]]],
+  musicbox: [['bpm', 'Tempo', [[90, 'Slow'], [120, 'Medium'], [150, 'Fast']]], ['height', 'Height', [[0.12, cm], [0.25, cm], [0.4, cm]]]],
   drop: [['height', 'Drop', [[0.1, cm], [0.2, cm], [0.3, cm], [0.5, cm]]]],
   jump: [['angle', 'Kick', [[15, '15°'], [30, '30°'], [45, '45°']]]],
   funnel: [['size', 'Size', [[0.1, 'S'], [0.15, 'L']]], ['dir', 'Spin', [[1, '⟲ Left'], [-1, '⟳ Right']]]],
@@ -857,7 +859,8 @@ function renderSelPop() {
       c.append(mk('−', -1), val, mk('+', 1));
     });
   }
-  if (!['cup', 'basket', 'tramp', 'dominoes', 'bell', 'bumper'].includes(d.type)) {
+  if (d.type === 'musicbox' && !d.locked) el.appendChild(songGrid(d));
+  if (!['cup', 'basket', 'tramp', 'dominoes', 'bell', 'bumper', 'musicbox', 'plinko'].includes(d.type)) {
     row('Slope', c => chips(c, SLOPES.map(([v, l]) => [v, L(l)]), v => Math.abs(v * DEG - d.slope) < 1e-4, v => tweakSelected({ geom: true, apply: nd => { nd.slope = +(v * DEG).toFixed(5); } }), 'chip', locked));
   }
   if (!d.locked) row('Look', c => {
@@ -888,6 +891,7 @@ function renderSelPop() {
     btn('⟲', '', () => turnPiece(d.id, 45 * DEG));
     btn('⟳', '', () => turnPiece(d.id, -45 * DEG));
   }
+  if (d.type === 'musicbox') btn('▶ Play', '', () => { insts.get(d.id).devices.find(x => x instanceof MusicBoxDevice).play(world); sound.click(); });
   if (d.type === 'dominoes') btn('↺ Stand up', '', () => { for (const dv of insts.get(d.id).devices) if (dv.reset) dv.reset(world); sound.click(); });
   const own = openOuts.find(o => o.id === d.id);
   if (own && own.key !== S.active) btn('➕ Build from here', '', () => { S.active = own.key; S.insert = null; select(null); drawMarkers(); renderDock(); sound.click(); });
@@ -895,6 +899,20 @@ function renderSelPop() {
   if (!d.locked) btn('🗑 Delete', 'del', () => deletePiece(d.id));
   el.appendChild(ft);
   if (HANDLE[d.type] && !d.locked && store.get('bc.handleTip', 0) < 4) { const n = document.createElement('div'); n.className = 'note'; n.textContent = L(touchScreen() ? 'Tip: drag the orange handle · hold a piece for more' : 'Tip: drag the orange handle · Shift = slope · right-click for more'); el.appendChild(n); }
+}
+// the music box's song: four lanes (C, E, G, high C) by sixteen steps; tap a step to add or take away a peg
+const LANE_COLORS = ['#ff5d5d', '#ffd23f', '#3ccf7a', '#4c8dff'];
+function songGrid(d) {
+  const g = document.createElement('div'); g.className = 'song';
+  g.innerHTML = [3, 2, 1, 0].map(l => `<div class="srow" style="--lc:${LANE_COLORS[l]}">${[...Array(16)].map((_, s) => `<button data-l="${l}" data-s="${s}" class="${d.opts.pattern[l] >> s & 1 ? 'on' : ''}${s % 4 === 0 ? ' beat' : ''}"></button>`).join('')}</div>`).join('');
+  g.onclick = (e) => {
+    const b = e.target.closest('[data-s]');
+    if (!b) return;
+    const l = +b.dataset.l, s = +b.dataset.s;
+    sound.note(LANE_NOTES[l]);
+    tweakSelected({ geom: true, apply: nd => { nd.opts.pattern = nd.opts.pattern.slice(); nd.opts.pattern[l] ^= 1 << s; } });
+  };
+  return g;
 }
 // on a phone the editor takes the dock's place as a sheet (or sits on the right when the phone lies on its side)
 const touchScreen = () => matchMedia('(pointer: coarse)').matches;
@@ -1004,8 +1022,9 @@ function removeBall(b) {
 }
 function starts() { return [...insts.values()].filter(i => i.spawn); }
 function releaseAll(quiet) {
-  const st = starts();
-  if (!st.length) { if (!quiet) { toast(L('First place a 📍 Start Tower'), true); sound.error(); } return []; }
+  const st = starts(), boxes = world.devices.filter(d => d instanceof MusicBoxDevice);
+  if (!quiet) for (const dv of boxes) dv.play(world);
+  if (!st.length) { if (!quiet && !boxes.length) { toast(L('First place a 📍 Start Tower'), true); sound.error(); } return []; }
   sound.ensure();
   S.releases = (S.releases || 0) + 1;
   const made = st.map(i => spawnBall(i.spawn.clone().add(V((Math.random() - 0.5) * 0.002, 0, (Math.random() - 0.5) * 0.002))));
@@ -3674,6 +3693,8 @@ function frame(now) {
   for (const b of world.balls) { b.jnAcc = 0; if (!b.captured) world.refreshCandidates(b, horizon); }
   for (let i = 0; i < steps; i++) world.step(DT);
   const adv = steps * DT;
+  // music boxes drop a ball down a lane, and pluck its note, as each peg comes round
+  for (const dv of world.devices) if (dv instanceof MusicBoxDevice) for (const l of dv.due(world)) { spawnBall(dv.spawns[l].clone(), V()); sound.note(LANE_NOTES[l]); }
   if (adv > 0) rec.record(world, rotors(), S.follow && S.follow.id);
 
   camPos.copy(camera.position);

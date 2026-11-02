@@ -441,6 +441,33 @@ export class SwitchDevice {
   }
 }
 
+// The music box: a drum with pegs in four lanes turns once every 16 steps; each peg drops a ball
+// down its lane's chute and plucks that lane's note. It plays two turns each time it is started.
+export const LANE_NOTES = [0, 2, 4, 7]; // C, E, G and high C on the xylophone's scale
+export class MusicBoxDevice {
+  constructor(o) { Object.assign(this, o); this.drum = null; } // pattern [4 × 16-bit], bpm, spawns
+  initState() { return { playing: false, t0: 0, step: -1 }; }
+  get stepDur() { return 30 / this.bpm; } // two steps to a beat
+  play(world) { Object.assign(world.devState(this), { playing: true, t0: world.time, step: -1 }); }
+  // the lanes whose pegs came round since last asked
+  due(world) {
+    const st = world.devState(this);
+    if (!st.playing) return [];
+    const k = Math.floor((world.time - st.t0) / this.stepDur), out = [];
+    for (let s = st.step + 1; s <= Math.min(k, 31); s++) for (let l = 0; l < 4; l++) if (this.pattern[l] >> (s % 16) & 1) out.push(l);
+    st.step = k;
+    if (k >= 31) st.playing = false;
+    return out;
+  }
+  update(world) {
+    if (!this.drum) return;
+    const st = world.devState(this);
+    // peg s comes round to the top just as its step plays
+    const turn = st.playing ? (world.time - st.t0) / (this.stepDur * 16) : 0;
+    this.drum.rotation.z = turn * TAU;
+  }
+}
+
 // the plinko board's bins: a ball that comes to rest in one scores its points
 export class PlinkoDevice {
   constructor(o, psi, pitch, pts, yB) { this.o = o; this.h = heading(psi); this.S = leftOf(psi); this.pitch = pitch; this.pts = pts; this.yB = yB; }
@@ -928,6 +955,51 @@ export const PIECES = {
       B.probes = [g0.clone()];
       for (let y = base.y + 0.05; y < top.y - 0.03; y += 0.05) B.probes.push(V(base.x, y, base.z));
       void col;
+    },
+  },
+  musicbox: {
+    label: 'Music Box', kind: 'place', defaults: { height: 0.12, bpm: 120, pattern: [0x0101, 0x0404, 0x1010, 0x4040] },
+    build(d, B) {
+      // a wooden box with a pegged drum on top and four chutes out of the front, one per note
+      const base = V(d.port.x, d.port.y, d.port.z), psi = d.port.psi, h = heading(psi), S = leftOf(psi), Hb = d.opts.height;
+      const W = 0.16, D = 0.1, LANE = ['#ff5d5d', '#ffd23f', '#3ccf7a', '#4c8dff'];
+      const box = new THREE.Mesh(new THREE.BoxGeometry(D, Hb, W + 0.012), null);
+      box.position.copy(base).add(V(0, Hb / 2, 0)); box.rotation.y = psi; box.userData.paint = 'solid';
+      B.meshes.push(box);
+      B.colliders.push(new BoxCollider(box.position.x, box.position.y, box.position.z, D / 2, Hb / 2, W / 2 + 0.006, psi, SURFACES.wood));
+      // the drum turns about a sideways axis; its pegs show the song
+      const holder = new THREE.Group(); holder.position.copy(base).add(V(0, Hb + 0.034, 0)); holder.rotation.y = psi;
+      const drum = new THREE.Group(); holder.add(drum);
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, W - 0.008, 32), MAT.gold);
+      cyl.rotation.x = PI / 2; drum.add(cyl);
+      const pegGeos = LANE.map(() => []);
+      for (let l = 0; l < 4; l++) for (let s = 0; s < 16; s++) {
+        if (!(d.opts.pattern[l] >> s & 1)) continue;
+        const a = s / 16 * TAU, g = new THREE.SphereGeometry(0.0045, 8, 6);
+        g.translate(Math.sin(a) * 0.032, Math.cos(a) * 0.032, (l - 1.5) * 0.04); pegGeos[l].push(g);
+      }
+      pegGeos.forEach((gs, l) => { if (gs.length) { drum.add(new THREE.Mesh(mergeGeometries(gs), plainMat(LANE[l], { roughness: 0.35 }))); gs.forEach(g => g.dispose()); } });
+      for (const sd of [-1, 1]) { const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.008, 16), MAT.metal); cap.rotation.x = PI / 2; cap.position.z = sd * (W / 2); holder.add(cap); }
+      B.meshes.push(holder);
+      // four lanes: a stop at the back, a steep little chute out of the front
+      const spawns = [];
+      for (let l = 0; l < 4; l++) {
+        const top = base.clone().add(V(0, Hb + 0.016, 0)).addScaledVector(h, D / 2 + 0.006).addScaledVector(S, (1.5 - l) * 0.04);
+        const s = turtle(top, 0.08, x => ({ psi, phi: 0.7 + (Math.max(d.slope, 0.05) - 0.7) * (x / 0.08) }));
+        B.paths.push({ samples: s, profile: 'channel', margin0: 0.02, noAuto: true });
+        B.outs.push(endPort(s, psi, Math.max(d.slope, 0.05)));
+        addStop(B, top.clone().addScaledVector(h, -0.014).add(V(0, 0.012, 0)), psi);
+        spawns.push(top.clone().add(V(0, 0.03, 0)).addScaledVector(h, 0.006));
+        const tag = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.016, 0.03), plainMat(LANE[l], { roughness: 0.4 }));
+        tag.position.copy(base).add(V(0, Hb * 0.55, 0)).addScaledVector(h, D / 2 + 0.002).addScaledVector(S, (1.5 - l) * 0.04); tag.rotation.y = psi;
+        B.meshes.push(tag);
+      }
+      const dev = new MusicBoxDevice({ pattern: d.opts.pattern, bpm: d.opts.bpm, spawns });
+      dev.drum = drum;
+      B.devices.push(dev);
+      B.noPillars = true;
+      B.probes = [];
+      for (const u of [-D / 2, D / 2]) for (const v of [-W / 2, W / 2]) for (const y of [0.02, Hb]) B.probes.push(base.clone().addScaledVector(h, u).addScaledVector(S, v).add(V(0, y, 0)));
     },
   },
   straight: {

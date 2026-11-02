@@ -58,9 +58,13 @@ export function createInsight(app) {
   // ------------------------------------------------ news strip
   const newsEl = $('news');
   function news(icon, text, at, onClick) {
-    const el = document.createElement('button');
-    el.className = 'newsItem';
-    el.innerHTML = `<i>${icon}</i><span>${text}</span>${at ? '<b>📍</b>' : ''}`;
+    // the same line again (many balls, one run): keep the one already there a little longer
+    const key = icon + text, same = [...newsEl.children].find(c => c.dataset.key === key && !c.classList.contains('gone'));
+    const el = same || document.createElement('button');
+    if (!same) {
+      el.className = 'newsItem'; el.dataset.key = key;
+      el.innerHTML = `<i>${icon}</i><span>${text}</span>${at ? '<b>📍</b>' : ''}`;
+    }
     el.onclick = () => {
       if (onClick) onClick();
       else if (at) { const off = app.camera.position.clone().sub(app.controls.target).setLength(0.55); app.flyTo(at.clone().add(off), at.clone()); }
@@ -68,7 +72,8 @@ export function createInsight(app) {
     };
     newsEl.prepend(el);
     while (newsEl.children.length > 3) newsEl.lastChild.remove();
-    setTimeout(() => { el.classList.add('gone'); setTimeout(() => el.remove(), 400); }, 7000);
+    clearTimeout(el.goneT);
+    el.goneT = setTimeout(() => { el.classList.add('gone'); setTimeout(() => el.remove(), 400); }, 7000);
     return el;
   }
 

@@ -20,8 +20,9 @@ export function simulate(list, { ball = 'glass', branch = 0, secs = 30, roomColl
   w.setColliders(cols, devs);
   w.water = [...roomWater, ...insts.flatMap(i => i.B.water || [])];
   for (const d of devs) if (d instanceof SwitchDevice) w.devState(d).next = branch;
-  const start = insts.find(i => i.spawn);
-  const b = w.addBall(new Ball(ball, start.spawn));
+  // from the first start tower, or else down the first lane of a music box
+  const start = insts.find(i => i.spawn), box = devs.find(d => d.spawns);
+  const b = w.addBall(new Ball(ball, start ? start.spawn : box.spawns[0]));
   let maxV = 0, still = 0;
   for (let k = 0; k < secs / DT; k++) {
     if (k % 16 === 0) w.refreshCandidates(b, 0.02);
