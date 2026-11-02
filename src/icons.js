@@ -3,6 +3,7 @@ const s = (body) => `<svg viewBox="0 0 44 34" fill="none" stroke-linecap="round"
 const T = '#e0a95f', B = '#4c8dff', R = '#ff5d5d', Y = '#ffc83d', G = '#3ccf7a', P = '#9b6bff', K = '#2b2d42';
 export const ICONS = {
   select: s(`<path d="M15 5 L15 27 L20 22 L24 30 L28 28 L24 20 L31 20 Z" fill="#fff" stroke="${K}" stroke-width="2.4"/>`),
+  draw: s(`<path d="M5 29 C 12 29, 14 20, 21 20 C 27 20, 28 12, 33 10" stroke="${T}" stroke-width="3" stroke-dasharray="3 3"/><path d="M30 4 L38 12 L24 26 L18 28 L20 22 Z" fill="${Y}" stroke="${K}" stroke-width="1.6"/><path d="M30 4 L38 12" stroke="${R}" stroke-width="3"/>`),
   hand: s(`<circle cx="22" cy="9" r="6" fill="${B}"/><path d="M22 18 V29 M17 24 L22 29 L27 24" stroke="${K}" stroke-width="2.6"/>`),
   bridge: s(`<circle cx="7" cy="25" r="4" fill="${Y}"/><circle cx="37" cy="10" r="4" fill="${B}"/><path d="M11 24 C 22 22, 22 12, 33 11" stroke="${K}" stroke-width="2.6" stroke-dasharray="3 4"/>`),
   erase: s(`<path d="M10 22 L22 8 L34 18 L24 30 L14 30 Z" fill="#ffd0dc" stroke="${K}" stroke-width="2.2"/><path d="M16 16 L28 26" stroke="${K}" stroke-width="2.2"/>`),

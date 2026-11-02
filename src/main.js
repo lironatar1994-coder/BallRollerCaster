@@ -18,6 +18,7 @@ import { createBuildPad } from './buildpad.js';
 import { createFeel, reduceMotion } from './feel.js';
 import { createPlay } from './play.js';
 import { createCollectibles } from './collect.js';
+import { createDraw } from './draw.js';
 import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, MusicBoxDevice, LANE_NOTES, GoalDevice, PlinkoDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
 import { Sound, ROLL_FAMILY } from './audio.js';
 import { ICONS } from './icons.js';
@@ -109,6 +110,7 @@ const rec = new Recorder(15);
 const SLOPES = [[-6, 'Up'], [0, 'Flat'], [3, 'Gentle'], [7, 'Medium'], [14, 'Steep'], [30, 'Dive']];
 const TOOLS = {
   select: { label: 'Select', type: 'tool', icon: 'select', key: 'V', desc: 'Click a piece to edit it, or a ring to build from there' },
+  draw: { label: 'Draw', type: 'tool', icon: 'draw', key: 'L', desc: 'Hold and drag from the glowing ring to draw your track' },
   hand: { label: 'Drop Ball', type: 'tool', icon: 'hand', key: 'B', desc: 'Click anywhere to drop a ball from your hand' },
   bridge: { label: 'Connect', type: 'connect', piece: 'bridge', icon: 'bridge', key: 'J', desc: 'Join a yellow ring to a blue ring with a smooth track' },
   erase: { label: 'Eraser', type: 'tool', icon: 'erase', key: 'X', desc: 'Click pieces to remove them' },
@@ -158,7 +160,7 @@ const TOOLS = {
 };
 const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge', turnstile: 'turnstile', splitter: 'splitter', plinko: 'plinko', musicbox: 'musicbox', hat: 'hat', airhill: 'airhill', hammer: 'hammer', bucket: 'bucket' };
 const pieceLabel = (d) => d.type === 'curve' ? L(d.opts.dir > 0 ? 'Curve Left' : 'Curve Right') : d.type === 'helix' ? L(d.opts.dir > 0 ? 'Spiral Left' : 'Spiral Right') : d.type === 'bridge' ? L('Connector') : L(TOOLS[TYPE_TOOL[d.type]].label);
-const DOCK_TOOLS = ['select', 'hand', 'bridge', 'erase', 'paint', 'boxsel'];
+const DOCK_TOOLS = ['select', 'draw', 'hand', 'bridge', 'erase', 'paint', 'boxsel'];
 // sorted by what you want the ball to do next
 const DOCK_TABS = [
   ['tracks', 'Paths', ['start', 'straight', 'curveL', 'curveR', 'helixL', 'helixR', 'drop', 'tunnel']],
@@ -527,6 +529,7 @@ function updateGhost() {
   if (S.insert && t.type === 'tool') setHint(L('⤵ Insert mode: pick a piece in the dock to slip it in · Esc to stop'));
   else if (S.tool === 'bridge') setHint(L(S.connectFrom ? 'Now click a blue ring to connect to' : 'Click a yellow ring to start the connector'));
   else if (S.tool === 'paint') setHint(L('Click or drag over pieces to paint them · Shift-click paints the whole run'));
+  else if (S.tool === 'draw') setHint(L('Hold and drag from the glowing ring to draw your track · Shift = steeper'));
   else if (S.tool === 'boxsel') setHint(L('Drag a box around pieces · Shift adds more'));
   else if (S.tool === 'hand') setHint(L('Click anywhere to drop a ball'));
   else if (S.tool === 'erase') setHint(L('Click pieces to remove them · Esc when done'));
@@ -553,7 +556,7 @@ function commit(d, msg) {
   S.nextId = d.id + 1;
   S.selected = null; // no editor popping up: keep building, click a piece to change it
   sync(pieces.concat([d]), { activeFrom: d.id });
-  pushHistory();
+  if (!S.stroke) pushHistory(); // (a drawn stroke becomes one undo step when it ends)
   const inst = insts.get(d.id);
   if (inst) { popIn(inst.group); glowBrief(inst.group); if (d.port && PIECES[d.type].kind !== 'place') snapFx(V(d.port.x, d.port.y, d.port.z)); }
   placeSound();
@@ -833,7 +836,8 @@ function select(id) {
   if (S.selected) store.set('bc.handleTip', store.get('bc.handleTip', 0) + 1);
   renderSelPop();
   refreshHandles();
-  if (S.selected && selMode()) requestAnimationFrame(keepInView);
+  if (S.selected && S.focus && !S.stroke) draw.focusNow();
+  else if (S.selected && selMode()) requestAnimationFrame(keepInView);
 }
 function setHighlight(group, on, color = '#ff9a3c', k = 0.35) {
   const glowMat = (m) => { const c = m.clone(); if (c.emissive) { c.emissive = new THREE.Color(color); c.emissiveIntensity = k; } return c; };
@@ -1951,6 +1955,8 @@ function pickTool(k) {
   } else {
     S.tool = S.tool === k && k !== 'select' ? 'select' : k;
     if (TOOLS[S.tool].type === 'place') select(null);
+    // while drawing, the left button draws, so the right one turns the camera
+    controls.mouseButtons.RIGHT = S.tool === 'draw' ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
     sound.click();
   }
   renderDock(); renderSettings(); drawMarkers(); updateGhost();
@@ -2354,6 +2360,7 @@ window.addEventListener('keydown', (e) => {
     case 'q': case 'Q': if (S.move) { S.move.yaw += (e.shiftKey ? 15 : 45) * DEG; S.move.at = 0; } else { S.placeYaw += (e.shiftKey ? 15 : 45) * DEG; refreshPlaceGhost(); } break;
     case 'e': case 'E': if (S.move) { S.move.yaw -= (e.shiftKey ? 15 : 45) * DEG; S.move.at = 0; } else { S.placeYaw -= (e.shiftKey ? 15 : 45) * DEG; refreshPlaceGhost(); } break;
     case 'p': case 'P': togglePause(); break;
+    case 'o': case 'O': if (S.cam === 'orbit') draw.setFocus(!S.focus); break;
     case 'c': case 'C': clearBalls(); break;
     case 'h': case 'H': case '?': $('help').classList.toggle('hidden'); break;
     case 'i': case 'I': setSide(!document.body.classList.contains('side-open')); break;
@@ -2570,6 +2577,10 @@ const insight = createInsight(app);
 const visitors = createVisitors(app);
 const hidden = createCollectibles({
   scene, sound, store, world, sparkle, sticker: (id) => sticker(id), news: (...a) => insight.news(...a), roomCount: ROOM_KINDS.length,
+  get room() { return room; },
+});
+const draw = createDraw({
+  S, $, canvas, camera, controls, sound, scene, insts, makeData, activePort, commit, pushHistory, setHint, toast, clearGhost, flyTo, fitView,
   get room() { return room; },
 });
 const play = createPlay({
@@ -3371,6 +3382,8 @@ function afterBuild() {
   const n = store.get('bc.placed', 0) + 1; store.set('bc.placed', n);
   if (n >= 50) sticker('builder');
   visitors.noteBuild();
+  if (S.stroke) return; // the camera holds still while a track is being drawn
+  if (S.focus && S.cam === 'orbit') { draw.focusNow(); return; }
   if (!S.camFollow || S.cam !== 'orbit') return;
   const ap = activePort();
   if (!ap) return;
@@ -3803,6 +3816,7 @@ $('btnAlbum').onclick = openAlbum;
 $('btnShare').onclick = copyShareLink;
 $('btnVisit').onclick = () => { closeModals(); visitors.callNow(); };
 $('btnPuzzle').onclick = () => play.openMaker();
+$('camFocus').onclick = () => draw.setFocus(!S.focus);
 $('btnNote').onclick = () => play.openNote();
 $('btnSettings').onclick = () => { closeMenus(); syncOptions(); $('settingsModal').classList.remove('hidden'); };
 $('btnTour').onclick = () => { closeMenus(); startTour(); };
