@@ -648,7 +648,9 @@ body.phone.riding #predPill { display: none; }
 body.sel-sheet #dockMain, body.sel-sheet #settings { display: none !important; }
 #selPop.sheet .row { flex-wrap: nowrap; gap: 4px; }
 #selPop.sheet .row > .lbl { flex: 0 0 auto; min-width: 46px; font-size: 10px; letter-spacing: 0.4px; }
-#selPop.sheet .row > .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 1px; gap: 4px; }
+/* the sheet is as wide as the dock, never wider than the screen; chips wrap rather than hide off the edge */
+#dock > #selPop.sheet { align-self: stretch; }
+#selPop.sheet .row > .chips { flex: 1 1 auto; min-width: 0; flex-wrap: wrap; padding: 1px; gap: 4px; }
 #selPop.sheet .row > .chips::-webkit-scrollbar { display: none; }
 #selPop.sheet .chip { white-space: nowrap; padding: 4px 9px; font-size: 12.5px; }
 #selPop.sheet .hd .walk, #selPop.sheet .hd .x, #selPop.aside .hd .walk, #selPop.aside .hd .x { width: 32px; height: 32px; font-size: 14px; }

@@ -1527,7 +1527,8 @@ function fitView(instant) {
   // nothing built yet: a view over the whole room from the front corner
   if (box.isEmpty()) { const b = room.bounds; flyTo(V(b.x1 * 0.55, Math.min(b.h * 0.72, 1.25), b.z1 * 0.92), V(-0.1, 0.22, -0.2), instant); return; }
   camAssist.measure();
-  const c = box.getCenter(V()), r = Math.max(0.25, box.getSize(V()).length() / 2);
+  // (a small start, or a mission's lone target, is framed with some of the room around it)
+  const c = box.getCenter(V()), r = Math.max(S.challenge ? 0.6 : 0.3, box.getSize(V()).length() / 2);
   const dir = camera.position.clone().sub(controls.target).normalize();
   dir.y = THREE.MathUtils.clamp(dir.y, 0.4, 0.8); dir.normalize();
   const dist = THREE.MathUtils.clamp(camAssist.fitDistance(r), 0.35, 4);
@@ -2963,7 +2964,8 @@ function positionBuildPad() {
   const ahead = ap ? _v2.copy(I.p).add(V(Math.cos(ap.port.psi) * 0.1, 0, -Math.sin(ap.port.psi) * 0.1)).project(camera).x - _v.x : 1;
   const fitsR = sx + 36 + w < window.innerWidth - 6, fitsL = sx - 36 - w > 6;
   el.style.left = ((ahead > 0 ? !fitsL : fitsR) ? sx + 36 : Math.max(6, sx - 36 - w)) + 'px';
-  el.style.top = THREE.MathUtils.clamp(r.top + (1 - _v.y) / 2 * r.height - h / 2, 70, window.innerHeight - h - 160) + 'px';
+  // its bottom just above the ring's tag, so the tag and its ＋ stay in sight
+  el.style.top = THREE.MathUtils.clamp(r.top + (1 - _v.y) / 2 * r.height - h + 18, 70, window.innerHeight - h - 160) + 'px';
   el.style.visibility = _v.z > 1 ? 'hidden' : 'visible';
 }
 // the turn / slope / tilt rows and their test ball live in buildpad.js
@@ -3323,12 +3325,20 @@ function seeThrough(now) {
       // a few rays round the middle of the view too, so a piece only half in the way still fades
       const rgt = V().setFromMatrixColumn(camera.matrixWorld, 0), up = V().setFromMatrixColumn(camera.matrixWorld, 1);
       const reach = camera.position.distanceTo(controls.target) * 0.18;
+      // whatever you are building on top of (a basket on the bed, a track on the desk) stays solid
+      const support = new Set();
+      for (const p of targets) for (const it of F.items) {
+        const b = it.box;
+        if (p.x > b.min.x && p.x < b.max.x && p.z > b.min.z && p.z < b.max.z && p.y > b.max.y - 0.1 && p.y < b.max.y + 0.25) for (const m of F.near.get(it.m)) support.add(m);
+      }
       for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) targets.push(controls.target.clone().addScaledVector(rgt, a * reach).addScaledVector(up, b * reach));
       for (const t of targets) {
         const dir = t.clone().sub(camera.position), len = dir.length();
         if (len < 0.1) continue;
         occRay.set(camera.position, dir.divideScalar(len)); occRay.far = len - 0.04;
-        for (const h of occRay.intersectObjects(F.meshes, false)) for (const m of F.near.get(h.object) || [h.object]) want.add(m);
+        for (const h of occRay.intersectObjects(F.meshes, false)) {
+          for (const m of F.near.get(h.object) || [h.object]) if (!support.has(m)) want.add(m);
+        }
       }
       // and whatever the camera has ended up inside
       for (const it of F.items) if (it.box.containsPoint(camera.position)) for (const m of F.near.get(it.m)) want.add(m);

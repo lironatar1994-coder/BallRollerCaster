@@ -105,8 +105,8 @@ const HE = {
   '✨ Load the demo coaster': '✨ טעינת רכבת ההדגמה', '🧸 Empty room (start fresh)': '🧸 חדר ריק (מתחילים מחדש)', '🏆 Challenges': '🏆 אתגרים',
   '💾 Save to file': '💾 שמירה לקובץ', '📂 Open a file': '📂 פתיחת קובץ', 'Close': 'סגירה', 'How to play': 'איך משחקים',
   '1 · Build': '1 · בונים', '2 · Play': '2 · משחקים', '3 · Watch': '3 · צופים',
-  'Pick <b>Start Tower</b> and click the floor, bed or desk. Then click or drag pieces from the dock. Each one snaps onto the glowing <b class="ring">ring</b>.':
-    'בוחרים <b>מגדל התחלה</b> ולוחצים על הרצפה, המיטה או השולחן. אחר כך לוחצים או גוררים חלקים מהמגש. כל חלק נצמד ל<b class="ring">טבעת</b> הזוהרת.',
+  'Pick <b>Start Tower</b> and click the floor, bed or desk. Then build with the arrows next to the glowing <b class="ring">ring</b>, or the pieces in the dock. <b>✨</b> finds the way into a goal.':
+    'בוחרים <b>מגדל התחלה</b> ולוחצים על הרצפה, המיטה או השולחן. אחר כך בונים עם החצים שליד ה<b class="ring">טבעת</b> הזוהרת, או עם החלקים במגש. <b>✨</b> מוצא את הדרך ליעד.',
   'Press <b>Release</b> (or Space). The 🔮 line shows where a ball will go — a red ring marks where it would fall off.':
     'לוחצים <b>שחרר</b> (או רווח). הקו 🔮 מראה לאן הכדור ילך — טבעת אדומה מסמנת איפה הוא ייפול.',
   'Click a ball, then <b>Ride</b> inside it, or watch the <b>Movie</b> camera and <b>Replay</b>. Then try the 🏆 challenges!':
