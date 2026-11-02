@@ -474,11 +474,11 @@ function commit(d, msg) {
   if (!canUse(toolKeyOf(d))) { toast(L('None of those left in the parts box'), true); sound.error(); return; }
   if (S.color === 'rainbow' && d.color === RAINBOW[S.rainbow % RAINBOW.length]) S.rainbow++;
   S.nextId = d.id + 1;
-  S.selected = d.id;
+  S.selected = null; // no editor popping up: keep building, click a piece to change it
   sync(pieces.concat([d]), { activeFrom: d.id });
   pushHistory();
   const inst = insts.get(d.id);
-  if (inst) popIn(inst.group);
+  if (inst) { popIn(inst.group); glowBrief(inst.group); if (d.port && PIECES[d.type].kind !== 'place') snapFx(V(d.port.x, d.port.y, d.port.z)); }
   sound.place();
   if (msg) toast(msg);
   afterBuild();
@@ -581,7 +581,8 @@ function deletePiece(id) {
   sync(list, { activeFrom: healed ? undefined : par?.id });
   pushHistory();
   sound.remove();
-  if (mine.length && !healed) toast(L('Removed — the pieces after it stay where they are'));
+  const name = pieceLabel(d);
+  toast(mine.length && !healed ? L('Removed — the pieces after it stay where they are') : healed ? L('Removed {0} — the track closed the gap', name) : L('Removed {0}', name), false, undo);
 }
 function tweakSelected(change) {
   const id = S.selected;
@@ -746,16 +747,19 @@ function select(id) {
     for (const c of hiGroup.children) if (c !== insts.get(S.selected).pillars && !c.isSprite) box.expandByObject(c);
     S.selAnchor.set((box.min.x + box.max.x) / 2, box.max.y + 0.01, (box.min.z + box.max.z) / 2);
   }
+  if (S.selected) store.set('bc.handleTip', store.get('bc.handleTip', 0) + 1);
   renderSelPop();
   refreshHandles();
 }
-function setHighlight(group, on) {
-  const glowMat = (m) => { const c = m.clone(); if (c.emissive) { c.emissive = new THREE.Color('#ff9a3c'); c.emissiveIntensity = 0.35; } return c; };
+function setHighlight(group, on, color = '#ff9a3c', k = 0.35) {
+  const glowMat = (m) => { const c = m.clone(); if (c.emissive) { c.emissive = new THREE.Color(color); c.emissiveIntensity = k; } return c; };
   group.traverse(o => {
     if (!o.isMesh || !o.material || o.material.transparent) return;
     if (on) {
       if (!hiCache.has(o)) hiCache.set(o, o.material);
-      o.material = Array.isArray(o.material) ? o.material.map(glowMat) : glowMat(o.material);
+      else (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
+      const base = hiCache.get(o);
+      o.material = Array.isArray(base) ? base.map(glowMat) : glowMat(base);
     } else if (hiCache.has(o)) {
       (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
       o.material = hiCache.get(o); hiCache.delete(o);
@@ -808,8 +812,26 @@ function renderSelPop() {
   if (!['cup', 'basket', 'tramp', 'dominoes', 'bell', 'bumper'].includes(d.type)) {
     row('Slope', c => chips(c, SLOPES.map(([v, l]) => [v, L(l)]), v => Math.abs(v * DEG - d.slope) < 1e-4, v => tweakSelected({ geom: true, apply: nd => { nd.slope = +(v * DEG).toFixed(5); } }), 'chip', locked));
   }
-  if (!d.locked) row('Color', c => chips(c, Object.keys(COLORS).map(k => [k, '', `background:${COLORS[k]}`]), v => v === d.color, v => tweakSelected({ geom: false, apply: nd => { nd.color = v; } }), 'swatch'));
-  if (TRACK_TYPES.includes(d.type) && !d.locked) row('Style', c => chips(c, STYLE_ITEMS.map(([v, l]) => [v, L(l)]), v => v === d.style, v => tweakSelected({ geom: false, apply: nd => { nd.style = v; } })));
+  if (!d.locked) row('Look', c => {
+    const sw = document.createElement('button');
+    sw.className = 'swatch pick'; sw.style.background = COLORS[d.color] || '#e0c39a'; sw.dataset.menu = ''; sw.title = L('Color');
+    sw.onclick = () => openMenu($('popMenu'), sw, menu => {
+      menu.innerHTML = '';
+      const cc = document.createElement('div'); cc.className = 'chips pal';
+      chips(cc, Object.keys(COLORS).map(k => [k, '', `background:${COLORS[k]}`]), v => v === d.color, v => { closeMenus(); tweakSelected({ geom: false, apply: nd => { nd.color = v; } }); }, 'swatch');
+      menu.appendChild(cc);
+    });
+    c.appendChild(sw);
+    if (!TRACK_TYPES.includes(d.type)) return;
+    const st = document.createElement('button');
+    st.className = 'chip pick'; st.dataset.menu = ''; st.title = L('Track style');
+    st.innerHTML = `${L(STYLE_ITEMS.find(x => x[0] === d.style)?.[1] || d.style)} <i class="caret">▾</i>`;
+    st.onclick = () => openMenu($('popMenu'), st, menu => {
+      menu.innerHTML = STYLE_ITEMS.map(([v, l]) => `<button data-style="${v}" class="${v === d.style ? 'on' : ''}">${L(l)}</button>`).join('');
+      menu.onclick = (e) => { const b = e.target.closest('[data-style]'); if (!b) return; closeMenus(); tweakSelected({ geom: false, apply: nd => { nd.style = b.dataset.style; } }); };
+    });
+    c.appendChild(st);
+  });
   if (d.locked) { const n = document.createElement('div'); n.className = 'note'; n.textContent = '🔒 ' + L('Locked in this challenge'); el.appendChild(n); }
   const ft = document.createElement('div'); ft.className = 'ft';
   const btn = (label, cls, fn) => { const b = document.createElement('button'); b.textContent = L(label); if (cls) b.className = cls; b.onclick = fn; ft.appendChild(b); };
@@ -824,7 +846,7 @@ function renderSelPop() {
   if (chainLinks().kids.has(d.id)) btn('⤵ Insert after', '', () => startInsert(d.id));
   if (!d.locked) btn('🗑 Delete', 'del', () => deletePiece(d.id));
   el.appendChild(ft);
-  if (HANDLE[d.type] && !d.locked) { const n = document.createElement('div'); n.className = 'note'; n.textContent = L('Tip: drag the orange handle · Shift = slope · right-click for more'); el.appendChild(n); }
+  if (HANDLE[d.type] && !d.locked && store.get('bc.handleTip', 0) < 4) { const n = document.createElement('div'); n.className = 'note'; n.textContent = L('Tip: drag the orange handle · Shift = slope · right-click for more'); el.appendChild(n); }
 }
 // the little tag under the active ring: how high it is and how fast the ball gets there
 function positionRingTag(now) {
@@ -835,7 +857,7 @@ function positionRingTag(now) {
   if (now - I.at > 250) {
     I.at = now;
     const v = S.predict ? predSpeedAt(I.p) : null;
-    const html = `<b>↧ ${(I.h * 100).toFixed(0)} ${L('cm')}</b>${v != null ? ` · ⚡ ${v.toFixed(2)} ${L('m/s')}` : ''}${S.insert ? ` · <span class="ins">⤵ ${L('inserting')}</span>` : ''}`;
+    const html = `${S.arrows ? `<button class="plus${padOpen() ? ' on' : ''}" title="${L('Build arrows')}">＋</button>` : ''}<b>↧ ${(I.h * 100).toFixed(0)} ${L('cm')}</b>${v != null ? ` · ⚡ ${v.toFixed(2)} ${L('m/s')}` : ''}${S.insert ? ` · <span class="ins">⤵ ${L('inserting')}</span>` : ''}`;
     if (html !== I.html) { el.innerHTML = html; I.html = html; }
   }
   _v.copy(I.p).project(camera);
@@ -1870,9 +1892,17 @@ $('sideToggle').onclick = () => setSide(!document.body.classList.contains('side-
 
 let hintT = 0;
 function setHint(t) { const h = $('hint'); h.textContent = t; h.classList.toggle('show', !!t); }
-function toast(t, bad) {
-  const el = $('toast'); el.textContent = t; el.classList.toggle('bad', !!bad); el.classList.add('show');
-  clearTimeout(hintT); hintT = setTimeout(() => el.classList.remove('show'), 1900);
+function toast(t, bad, undoIt) {
+  const el = $('toast');
+  el.textContent = t;
+  if (undoIt) {
+    const b = document.createElement('button');
+    b.textContent = '↶ ' + L('Undo');
+    b.onclick = () => { undoIt(); el.classList.remove('show'); };
+    el.appendChild(b);
+  }
+  el.classList.toggle('bad', !!bad); el.classList.toggle('act', !!undoIt); el.classList.add('show');
+  clearTimeout(hintT); hintT = setTimeout(() => el.classList.remove('show'), undoIt ? 4500 : 1900);
 }
 function renderAll() {
   applyStatic();
@@ -1960,6 +1990,7 @@ canvas.addEventListener('pointermove', (e) => {
     } else if (S.ghostData) clearGhost();
   }
   if (S.photo) return;
+  if (['select', 'erase', 'paint'].includes(S.tool) && !hdrag && !boxDrag) { const pp = pickMarker() ? null : pickPiece(); hoverPiece(pp && !pieces.find(p => p.id === pp.id)?.locked ? pp.id : null); }
   const over = pickMarker() || (S.tool === 'select' && (pickBall() || pickPiece())) || (S.tool === 'erase' && pickPiece());
   canvas.style.cursor = over ? 'pointer' : t.type === 'place' || S.tool === 'hand' ? 'crosshair' : '';
 });
@@ -2540,9 +2571,20 @@ function renderStickers() {
 
 // ---------------------------------------------------------------- build arrows next to the ring
 S.arrows = store.get('bc.arrows', true);
+// the arrows stay folded into the ring tag's ＋ until you open them, hover them, or just built something
+let padPinned = store.get('bc.padPinned', false), padUntil = 0, padHover = false;
+const padOpen = () => padPinned || padHover || performance.now() < padUntil;
+$('ringTag').addEventListener('click', (e) => {
+  if (!e.target.closest('.plus')) return;
+  padPinned = !padPinned; store.set('bc.padPinned', padPinned); padUntil = 0;
+  if (S.ringInfo) S.ringInfo.at = 0;
+  sound.click();
+});
+$('buildPad').addEventListener('pointerenter', () => { padHover = true; });
+$('buildPad').addEventListener('pointerleave', () => { padHover = false; padUntil = performance.now() + 1500; });
 function positionBuildPad() {
   const el = $('buildPad'), I = S.ringInfo;
-  const show = S.arrows && I && S.cam === 'orbit' && !S.photo && !S.replay && !S.move && markerGroup.visible && TOOLS[S.tool].type !== 'place' && !S.multi.size && !hdrag;
+  const show = S.arrows && padOpen() && I && S.cam === 'orbit' && !S.photo && !S.replay && !S.move && markerGroup.visible && TOOLS[S.tool].type !== 'place' && !S.multi.size && !hdrag && !S.selected;
   el.classList.toggle('hidden', !show);
   if (!show) return;
   _v.copy(I.p).project(camera);
@@ -2741,7 +2783,7 @@ $('multiBar').onclick = (e) => {
   if (k === 'mirror') mirrorIds(ids);
   if (k === 'part') saveAsPart(ids);
   if (k === 'dup') { const part = partFromIds(ids); if (part) pastePart(part.items); }
-  if (k === 'del') { sync(pieces.filter(p => !ids.has(p.id) || p.locked)); pushHistory(); sound.remove(); S.multi.clear(); }
+  if (k === 'del') { sync(pieces.filter(p => !ids.has(p.id) || p.locked)); pushHistory(); sound.remove(); S.multi.clear(); toast(L('Removed {0} pieces', ids.size), false, undo); }
   renderMulti();
 };
 function nextColor() { const c = resolveColor(); if (S.color === 'rainbow') S.rainbow++; return c; }
@@ -2975,6 +3017,7 @@ S.camFollow = store.get('bc.camFollow', false);
 let tourAdded = false;
 function afterBuild() {
   tourAdded = true;
+  padUntil = performance.now() + 6000;
   const n = store.get('bc.placed', 0) + 1; store.set('bc.placed', n);
   if (n >= 50) sticker('builder');
   visitors.noteBuild();
@@ -3152,6 +3195,7 @@ function switchRoom(kind, opts = {}) {
   movie.bounds = room.bounds;
   sunDir = room.sun.position.clone().sub(room.sun.target.position).normalize();
   room.setNight(S.night);
+  contactShadows();
   S.name = store.get('bc.name.' + kind, '');
   history = []; histLabels = []; hIdx = -1;
   const saved = store.get(roomKey(kind), null);
@@ -3370,8 +3414,65 @@ $('btnShare').onclick = copyShareLink;
 $('btnVisit').onclick = () => { closeMenus(); visitors.callNow(); };
 $('btnTour').onclick = () => { closeMenus(); startTour(); };
 
+// ---------------------------------------------------------------- soft contact shadows under everything that stands on the floor
+const aoGroup = new THREE.Group(); scene.add(aoGroup);
+let aoTex = null;
+function contactShadows() {
+  aoGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  aoGroup.clear();
+  if (!aoTex) {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 6, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(46,34,52,0.38)'); gr.addColorStop(0.55, 'rgba(46,34,52,0.17)'); gr.addColorStop(1, 'rgba(46,34,52,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    aoTex = new THREE.CanvasTexture(c); aoTex.colorSpace = THREE.SRGBColorSpace;
+  }
+  const mat = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
+  for (const m of room.solids) {
+    if (m.userData.surface === 'floor') continue;
+    const b = new THREE.Box3().setFromObject(m), s = b.getSize(V());
+    if (b.min.y > 0.03 || s.y < 0.035 || s.x > 2.4 || s.z > 2.4 || s.x * s.z < 0.0003) continue;
+    const pad = Math.min(0.09, 0.3 * Math.max(s.x, s.z)) + 0.015;
+    const geo = new THREE.PlaneGeometry(s.x + pad * 2, s.z + pad * 2); geo.rotateX(-Math.PI / 2);
+    const blob = new THREE.Mesh(geo, mat);
+    blob.position.set((b.min.x + b.max.x) / 2, Math.max(0.0012, b.min.y + 0.0012), (b.min.z + b.max.z) / 2);
+    blob.renderOrder = 1; blob.raycast = () => {};
+    aoGroup.add(blob);
+  }
+}
+// a ring that pops out where a piece snaps on
+const snaps = [];
+const snapGeo = new THREE.TorusGeometry(0.024, 0.0035, 8, 32);
+function snapFx(p) {
+  const m = new THREE.Mesh(snapGeo, new THREE.MeshBasicMaterial({ color: '#ffe08a', transparent: true, depthWrite: false }));
+  m.position.copy(p); m.quaternion.copy(camera.quaternion); m.renderOrder = 9;
+  fxGroup.add(m); snaps.push({ m, t: 0 });
+  sparkle(p, '#ffd23f', 6);
+}
+function glowBrief(group) {
+  setHighlight(group, true, '#ffe08a', 0.45);
+  setTimeout(() => { if (group !== hiGroup && !multiHi.includes(group)) setHighlight(group, false); }, 420);
+}
+let hoverId = null, hoverGroup = null;
+function hoverPiece(id) {
+  if (id === hoverId) return;
+  if (hoverGroup && hoverGroup !== hiGroup && !multiHi.includes(hoverGroup)) setHighlight(hoverGroup, false);
+  hoverId = id; hoverGroup = null;
+  const inst = id != null && insts.get(id);
+  if (!inst || inst.group === hiGroup || multiHi.includes(inst.group)) return;
+  hoverGroup = inst.group;
+  setHighlight(hoverGroup, true, S.tool === 'erase' ? '#ff4d4d' : S.tool === 'paint' ? (COLORS[resolveColor()] || '#ffd36b') : '#ffd36b', S.tool === 'erase' ? 0.5 : 0.2);
+}
+canvas.addEventListener('pointerleave', () => hoverPiece(null));
+
 // ---------------------------------------------------------------- every frame
 function everyFrame(dt, adv, now) {
+  for (let i = snaps.length - 1; i >= 0; i--) {
+    const s = snaps[i]; s.t += dt;
+    const k = s.t / 0.45;
+    s.m.scale.setScalar(1 + k * 1.6); s.m.material.opacity = Math.max(0, 1 - k);
+    if (k >= 1) { fxGroup.remove(s.m); s.m.material.dispose(); snaps.splice(i, 1); }
+  }
   insight.updateGhost(dt);
   visitors.update(dt, adv);
   if (showT < 3) { showT += dt; showLight.color.setHSL((showT * 1.3) % 1, 1, 0.6); showLight.intensity = 3 * Math.exp(-showT * 1.1) * (0.65 + 0.35 * Math.sin(showT * 22)); if (showT >= 3) showLight.intensity = 0; }
@@ -3386,6 +3487,7 @@ function everyFrame(dt, adv, now) {
 }
 function afterSync() {
   _ptsFor = null;
+  hoverId = null; hoverGroup = null;
   refreshHandles();
   refreshHeights();
   refreshSigns();
@@ -3507,6 +3609,7 @@ resize();
 setSide(store.get('bc.side', false) && window.innerWidth > 760);
 renderAll();
 if (store.get('bc.music', false)) { sound.musicOn = true; $('btnMusic').classList.add('on'); }
+contactShadows();
 S.heat = store.get('bc.heat', 'off');
 S.ghostBall = store.get('bc.ghostBall', true);
 S.name = store.get('bc.name.' + room.kind, '');

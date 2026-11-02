@@ -565,3 +565,16 @@ body.dock-folded #dockMain { padding: 5px 8px; }
   #camPad button { height: 28px; }
 }
 #winTabs .winClose { flex: 0 0 auto; color: var(--muted); }
+
+/* ---------------------------------------------------------------- polish: vignette, ring-tag ＋, undo toast */
+#vignette { position: fixed; inset: 0; pointer-events: none; z-index: 1; background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 58%, rgba(70, 46, 70, 0.16) 100%); }
+body.photo #vignette { background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 62%, rgba(40, 26, 40, 0.22) 100%); }
+#ringTag { display: flex; align-items: center; gap: 5px; }
+#ringTag .plus { pointer-events: auto; width: 20px; height: 20px; border-radius: 50%; background: #ffc83d; color: #2b2d42; font-weight: 700; font-size: 14px; line-height: 1; display: grid; place-items: center; margin-inline-start: -4px; }
+#ringTag .plus.on { background: #fff; }
+#ringTag .plus:hover { transform: scale(1.12); }
+#toast.act { pointer-events: auto; display: flex; align-items: center; gap: 10px; }
+#toast button { background: var(--ink); color: #fff; border-radius: 999px; padding: 3px 12px; font-size: 14px; font-weight: 600; }
+#toast.bad button { background: #b3261e; }
+#selPop .row .swatch.pick { width: 24px; height: 24px; }
+#selPop .row .chip.pick { display: flex; align-items: center; gap: 4px; }

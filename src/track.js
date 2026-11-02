@@ -937,8 +937,12 @@ export const PIECES = {
         const ramp = Math.min(ease(x / Le), ease((L - x) / Le));
         return { psi: P.psi + dir * TAU * n * x / L, phi: lerpE(P.phi, phH, x / Le), bank: -dir * 0.22 * ramp };
       });
-      B.paths.push({ samples: s, profile: d.style });
+      // held up like a real kit spiral: one tower in the middle with spokes out to the track
+      B.paths.push({ samples: s, profile: d.style, noAuto: true });
       B.outs.push(endPort(s, P.psi + dir * TAU * n, phH));
+      let cx = 0, cz = 0;
+      for (const q of s) { cx += q.p.x; cz += q.p.z; }
+      B.column = { x: cx / s.length, z: cz / s.length, samples: s, step: TAU * R / 3 };
     },
   },
   loop: {
@@ -1789,7 +1793,7 @@ export function buildPiece(d) {
         group.add(ring);
       }
     }
-    if (!B.noPillars) {
+    if (!B.noPillars && !path.noAuto) {
       // supports for the track itself; nearby duplicates are dropped later
       B.autoPillars = B.autoPillars || new Set();
       const len = last(path.samples).s;
@@ -1937,6 +1941,36 @@ export function buildPillars(inst, raycaster, targets, taken = []) {
         const cheek = new THREE.BoxGeometry(0.018, 0.016, 0.004);
         cheek.translate(0, 0.006, sx * (w + 0.0005));
         cheek.applyMatrix4(m4); accents.push(cheek);
+      }
+    }
+  }
+  // a spiral's tower: a fat post in the middle from the floor to the top, spokes out to the track
+  const col = inst.B.column;
+  if (col) {
+    const top = Math.max(...col.samples.map(q => q.p.y)) - RC - TH;
+    raycaster.set(V(col.x, top, col.z), down); raycaster.far = 3;
+    const hit = raycaster.intersectObjects(targets, true).find(h => h.object.userData.pieceId !== inst.d.id);
+    const base = hit ? hit.point.y : 0, len = top - base;
+    if (len > 0.01) {
+      const tower = new THREE.CylinderGeometry(0.012, 0.012, len, 20);
+      tower.translate(col.x, base + len / 2, col.z); posts.push(tower);
+      for (let h = 0.03; h < len - 0.012; h += 0.03) { const ring = new THREE.CylinderGeometry(0.0138, 0.0138, 0.004, 20); ring.translate(col.x, base + h, col.z); posts.push(ring); }
+      const cap = new THREE.CylinderGeometry(0.016, 0.014, 0.008, 20); cap.translate(col.x, top + 0.004, col.z); accents.push(cap);
+      if (!hit || hit.object.userData.pieceId === undefined) { const foot = new THREE.CylinderGeometry(0.024, 0.028, 0.008, 28); foot.translate(col.x, base + 0.004, col.z); accents.push(foot); }
+      // a spoke every third of a turn, from the tower to the underside of the channel
+      for (let sv = col.step * 0.5; sv < col.samples[col.samples.length - 1].s - 0.02; sv += col.step) {
+        const q = col.samples.reduce((a, c) => Math.abs(c.s - sv) < Math.abs(a.s - sv) ? c : a);
+        const under = q.p.clone().addScaledVector(q.U, -(RC + TH));
+        const dx = under.x - col.x, dz = under.z - col.z, dist = Math.hypot(dx, dz);
+        if (dist < 0.02) continue;
+        const spoke = new THREE.BoxGeometry(dist - 0.008, 0.007, 0.01);
+        spoke.rotateY(Math.atan2(-dz, dx));
+        spoke.translate((col.x + under.x) / 2, under.y - 0.004, (col.z + under.z) / 2);
+        posts.push(spoke);
+        const clip = new THREE.BoxGeometry(0.016, 0.006, (RC + TH) * 2 + 0.004);
+        const R = V().crossVectors(q.T, q.U);
+        clip.applyMatrix4(m4.makeBasis(q.T, q.U, R).setPosition(under));
+        accents.push(clip);
       }
     }
   }
