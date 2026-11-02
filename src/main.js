@@ -1992,7 +1992,7 @@ document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click',
   if (a === 'demo') { if (S.challenge) exitChallenge(); loadDemo(); closeModals(); }
   if (a === 'challenges') { closeModals(); openChallenges(); }
   if (a === 'export') {
-    const blob = new Blob([JSON.stringify({ app: 'ball-coaster', v: 1, pieces }, null, 1)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ app: 'ball-coaster', v: SAVE_V, pieces }, null, 1)], { type: 'application/json' });
     const url = URL.createObjectURL(blob), link = document.createElement('a');
     link.href = url; link.download = 'my-ball-coaster.json'; link.click(); URL.revokeObjectURL(url);
     closeModals();
@@ -2004,7 +2004,7 @@ $('fileIn').onchange = async (e) => {
   try {
     const j = JSON.parse(await f.text());
     if (S.challenge) exitChallenge();
-    clearBalls(); S.selected = null; sync(j.pieces || []); pushHistory(); closeModals(); toast(L('Loaded! ✨')); fitView();
+    clearBalls(); S.selected = null; sync(migratePieces(j.pieces || [], j.v ?? 1)); pushHistory(); closeModals(); toast(L('Loaded! ✨')); fitView();
   } catch (err) { toast(L('Could not read that file'), true); }
   e.target.value = '';
 };
@@ -2028,7 +2028,31 @@ function updateArrows() {
 }
 
 // ================================================================ save / load / demo
-function save() { if (!S.challenge) store.set('ballcoaster.v1', { pieces }); }
+// v1 coasters were built when the room was full size. An untouched old demo becomes today's demo.
+// Anything else moves as one block (so a jump still lands in its basket), and each joined-up part
+// keeps standing on the same surface (floor, desk, bed…) of today's smaller room.
+const SAVE_V = 2;
+function migratePieces(list, v) {
+  if (v >= SAVE_V || !list.length) return list;
+  const demo = buildDemo();
+  if (list.length === demo.length && list.every((d, i) => d.type === demo[i].type && JSON.stringify(d.opts) === JSON.stringify(demo[i].opts))) return demo;
+  const s = room.scale, built = new Map(list.map(d => { const b = buildPiece(d); disposeGroup(b.group); return [d.id, b]; }));
+  const group = new Map(list.map(d => [d.id, d.id]));
+  const find = (id) => group.get(id) === id ? id : find(group.get(id));
+  for (const a of built.values()) for (const b of built.values()) {
+    if (a !== b && a.outs.some(o => b.ins.some(n => o.p.distanceToSquared(n.p) < 9e-6))) group.set(find(b.d.id), find(a.d.id));
+  }
+  const xs = list.map(d => d.port.x), zs = list.map(d => d.port.z);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+  return list.map(d => {
+    const n = JSON.parse(JSON.stringify(d)), root = list.find(x => x.id === find(d.id));
+    const dl = { x: cx * (s - 1), y: root.port.y * (s - 1), z: cz * (s - 1) };
+    if (n.port) n.port = movePort(n.port, n.port, dl, 0);
+    if (n.to) n.to = movePort(n.to, n.to, dl, 0);
+    return n;
+  });
+}
+function save() { if (!S.challenge) store.set('ballcoaster.v2', { v: SAVE_V, pieces }); }
 function loadDemo() {
   clearBalls();
   S.selected = null;
@@ -2139,8 +2163,8 @@ resize();
 setSide(store.get('bc.side', false));
 renderAll();
 if (store.get('bc.music', false)) { sound.musicOn = true; $('btnMusic').classList.add('on'); }
-const saved = store.get('ballcoaster.v1', null);
-if (saved && Array.isArray(saved.pieces) && saved.pieces.length) { sync(saved.pieces); pushHistory(); }
+const saved = store.get('ballcoaster.v2', null) || store.get('ballcoaster.v1', null);
+if (saved && Array.isArray(saved.pieces) && saved.pieces.length) { sync(migratePieces(saved.pieces, saved.v ?? 1)); pushHistory(); }
 else loadDemo();
 fitView(true);
 if (!store.get('ballcoaster.helped', false)) { $('help').classList.remove('hidden'); store.set('ballcoaster.helped', true); }
