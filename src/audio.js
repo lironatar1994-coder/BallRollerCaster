@@ -123,7 +123,8 @@ export class Sound {
   }
   star(i) { if (!this.ok()) return; this.tone(880 * Math.pow(1.26, i), 0.4, 'sine', 0.25); this.tone(1760 * Math.pow(1.26, i), 0.2, 'sine', 0.08); }
   shutter() { if (!this.ok()) return; this.burst(4000, 1, 0.05, 0.3); this.burst(2000, 1, 0.08, 0.2, 0.06); }
-  place() { if (!this.ok()) return; this.tone(520, 0.12, 'sine', 0.3, 0, 0.55); this.burst(1800, 2, 0.03, 0.15); }
+  // quick building climbs a pentatonic scale, one step per piece
+  place(step = 0) { if (!this.ok()) return; const f = 520 * [1, 1.125, 1.25, 1.5, 1.667, 2, 2.25, 2.5][Math.min(7, step)]; this.tone(f, 0.12, 'sine', 0.3, 0, 0.55); this.burst(1800, 2, 0.03, 0.15); }
   remove() { if (!this.ok()) return; this.tone(420, 0.2, 'triangle', 0.18, 0, 0.4); }
   click() { if (!this.ok()) return; this.tone(1200, 0.04, 'sine', 0.12); }
   error() { if (!this.ok()) return; this.tone(180, 0.18, 'square', 0.08); }

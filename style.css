@@ -382,10 +382,11 @@ body.photo #bubbles, body.replaying #bubbles { display: none; }
 #buildPad button.magic { grid-column: 7; background: linear-gradient(135deg, #b48bff, #ff8fb0); color: #fff; }
 #buildPad [data-b="back"] { color: var(--muted); }
 /* what the silent test ball found: a green, yellow or red dot on each turn */
-#buildPad button::after { content: ''; position: absolute; right: 2px; bottom: 2px; width: 7px; height: 7px; border-radius: 50%; display: none; box-shadow: 0 0 0 1.5px #fff; }
-#buildPad button.ok::after { display: block; background: #2fbf71; }
-#buildPad button.slow::after { display: block; background: #ffb020; }
-#buildPad button.off::after { display: block; background: #ff4d4d; }
+/* a shape inside each dot too (✓ ! ✕), so it reads without telling red from green */
+#buildPad button::after { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; border-radius: 50%; display: none; box-shadow: 0 0 0 1.5px #fff; color: #fff; font: 900 8px/12px system-ui, sans-serif; text-align: center; }
+#buildPad button.ok::after { content: '✓'; display: block; background: #2fbf71; }
+#buildPad button.slow::after { content: '!'; display: block; background: #ffb020; color: #3d2a00; }
+#buildPad button.off::after { content: '✕'; display: block; background: #ff4d4d; }
 #buildPad button.off { color: #c83a3a; }
 #buildPad button.bad { opacity: 0.28; }
 #buildPad button.wait { opacity: 0.7; }
@@ -633,6 +634,23 @@ body.sel-sheet #dockMain, body.sel-sheet #settings { display: none !important; }
 /* a phone on its side: a panel on the right instead */
 #selPop.aside { left: auto; right: 4px; top: calc(var(--topH, 50px) + 6px); bottom: calc(var(--dockH, 100px) + 8px); transform: none; width: 290px; min-width: 0; max-width: 46vw; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px; gap: 4px; }
 body.sel-aside #camPad, body.sel-aside #predPill { display: none; }
+/* where the watched ball's energy is: moving, height, or lost to rubbing and bumps */
+#energyHud { position: fixed; right: 12px; bottom: 12px; z-index: 5; display: none; align-items: center; gap: 6px; flex-wrap: wrap; width: 200px; background: var(--panel); backdrop-filter: blur(8px); border-radius: 14px; padding: 6px 10px; box-shadow: var(--shadow); font-size: 11px; }
+#energyHud.on { display: flex; }
+#energyHud .ebar { flex: 1; display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #eee; }
+#energyHud .ebar i { display: block; height: 100%; transition: width .1s linear; }
+#energyHud .m { background: #3ccf7a; } #energyHud .h { background: #4c8dff; } #energyHud .l { background: #c9cbd6; }
+#energyHud .elegend { width: 100%; display: flex; gap: 8px; color: var(--muted); }
+#energyHud .elegend span::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-inline-end: 3px; vertical-align: -1px; }
+#energyHud .elegend .m::before { background: #3ccf7a; } #energyHud .elegend .h::before { background: #4c8dff; } #energyHud .elegend .l::before { background: #c9cbd6; }
+body.photo #energyHud, body.replaying #energyHud { display: none !important; }
+/* the big finish: the room dims a little round the edges while the ball drops in */
+#vignette { transition: box-shadow .4s ease; }
+body.finale #vignette { box-shadow: inset 0 0 160px 40px rgba(40, 20, 50, 0.35); }
+/* the device asks for less motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
 /* a phone keeps the build pad just above the dock, clear of the camera buttons */
 body.phone #buildPad { left: 6px; top: auto; bottom: calc(var(--dockH, 120px) + 10px); width: min(330px, calc(100vw - 64px)); }
 body.phone #buildPad .padRow { grid-template-columns: repeat(7, 1fr); }

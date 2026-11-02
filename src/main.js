@@ -12,7 +12,7 @@ import { createInsight, starText } from './insight.js';
 import { shareLink, linkCode, decodeCoaster, gallery, thumbnail, VideoRecorder } from './share.js';
 import { finishIt, fixIt, simulate as simRun } from './autobuild.js';
 import { createVisitors } from './visitors.js';
-import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
+import { PIECES, buildPiece, validatePiece, buildPillars, disposeGroup, portToData, dirOf, RC, COLORS, RAINBOW, SwitchDevice, GoalDevice, TrampolineDevice, BellDevice, BumperDevice, DominoRow, GateDevice, SensorDevice, SENSOR_COLORS } from './track.js';
 import { Sound, ROLL_FAMILY } from './audio.js';
 import { ICONS } from './icons.js';
 import * as TX from './textures.js';
@@ -101,6 +101,9 @@ const TOOLS = {
   loop: { label: 'Loop', type: 'append', piece: 'loop', icon: 'loop', desc: 'Needs speed! Build it low after a steep dive' },
   jump: { label: 'Jump Ramp', type: 'append', piece: 'jump', icon: 'jump', desc: 'Launches the ball into the air — aim with 🔮 Predict' },
   switch: { label: 'Flip-Flop', type: 'append', piece: 'switch', icon: 'switch', desc: 'Sends balls left, right, left, right…' },
+  turnstile: { label: 'Turnstile', type: 'append', piece: 'turnstile', icon: 'turnstile', desc: 'Three ways out: each ball takes the next one' },
+  splitter: { label: 'Speed Splitter', type: 'append', piece: 'splitter', icon: 'splitter', desc: 'Fast balls jump the gap, slow ones drop to the chute below' },
+  plinko: { label: 'Plinko', type: 'append', piece: 'plinko', icon: 'plinko', desc: 'Bounce down through the pegs — the middle bin scores 5!' },
   xylo: { label: 'Xylophone', type: 'append', piece: 'xylo', icon: 'xylo', desc: 'Plays a tune as the ball rolls over it' },
   lift: { label: 'Lift', type: 'append', piece: 'lift', icon: 'lift', desc: 'Carries balls back up — build forever-loops' },
   funnel: { label: 'Funnel', type: 'append', piece: 'funnel', icon: 'funnel', desc: 'Balls swirl round and round, then drop out below' },
@@ -124,13 +127,13 @@ const TOOLS = {
   blocks: { label: 'Blocks', type: 'place', piece: 'blocks', icon: 'blocks', desc: 'Toy blocks: a platform to build on' },
   decor: { label: 'Decoration', type: 'place', piece: 'decor', icon: 'decor', desc: 'Flags, arches, lamps… nice things near the track make it more fun' },
 };
-const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge' };
+const TYPE_TOOL = { brake: 'brake', booster: 'booster', gate: 'gate', sensor: 'sensor', photo: 'photo', screw: 'screw', elevator: 'elevator', pool: 'pool', blocks: 'blocks', decor: 'decor', start: 'start', straight: 'straight', curve: 'curveL', helix: 'helixL', drop: 'drop', tunnel: 'tunnel', loop: 'loop', jump: 'jump', switch: 'switch', xylo: 'xylo', lift: 'lift', funnel: 'funnel', wheel: 'wheel', seesaw: 'seesaw', cup: 'cup', catcher: 'catcher', basket: 'basket', tramp: 'tramp', dominoes: 'dominoes', bell: 'bell', bumper: 'bumper', bridge: 'bridge', turnstile: 'turnstile', splitter: 'splitter', plinko: 'plinko' };
 const pieceLabel = (d) => d.type === 'curve' ? L(d.opts.dir > 0 ? 'Curve Left' : 'Curve Right') : d.type === 'helix' ? L(d.opts.dir > 0 ? 'Spiral Left' : 'Spiral Right') : d.type === 'bridge' ? L('Connector') : L(TOOLS[TYPE_TOOL[d.type]].label);
 const DOCK_TOOLS = ['select', 'hand', 'bridge', 'erase', 'paint', 'boxsel'];
 const DOCK_TABS = [
   ['tracks', 'Tracks', ['start', 'straight', 'curveL', 'curveR', 'helixL', 'helixR', 'drop', 'tunnel']],
-  ['thrills', 'Thrills', ['loop', 'jump', 'switch', 'xylo', 'lift', 'funnel', 'wheel', 'seesaw']],
-  ['catch', 'Catch & score', ['cup', 'catcher', 'basket', 'tramp', 'dominoes', 'bell', 'bumper']],
+  ['thrills', 'Thrills', ['loop', 'jump', 'switch', 'turnstile', 'splitter', 'xylo', 'lift', 'funnel', 'wheel', 'seesaw']],
+  ['catch', 'Catch & score', ['cup', 'plinko', 'catcher', 'basket', 'tramp', 'dominoes', 'bell', 'bumper']],
   ['gadgets', 'Gadgets', ['brake', 'booster', 'gate', 'sensor', 'photo', 'screw', 'elevator']],
   ['room', 'Room & decor', ['pool', 'blocks', 'decor']],
   ['parts', '⭐ My parts', []],
@@ -143,6 +146,8 @@ const OPTIONS = {
   curve: [['dir', 'Turn', [[1, '↰ Left'], [-1, '↱ Right']]], ['angle', 'Angle', [[45, '45°'], [90, '90°'], [180, '180°']]], ['radius', 'Radius', [[0.08, 'Tight'], [0.12, 'Medium'], [0.2, 'Wide']]], ['bank', 'Bank', [[0, 'Flat'], [15, '15°'], [30, '30°']]]],
   helix: [['dir', 'Turn', [[1, '↰ Left'], [-1, '↱ Right']]], ['turns', 'Turns', [[1, '1'], [2, '2'], [3, '3']]], ['radius', 'Size', [[0.09, 'S'], [0.11, 'M'], [0.15, 'L']]]],
   loop: [['radius', 'Size', [[0.07, 'S'], [0.08, 'M'], [0.11, 'L']]]],
+  splitter: [['speed', 'Splits at', [[0.6, '0.6 m/s'], [0.75, '0.75 m/s'], [0.9, '0.9 m/s']]]],
+  plinko: [['size', 'Height', [[0.2, cm], [0.26, cm], [0.34, cm]]]],
   drop: [['height', 'Drop', [[0.1, cm], [0.2, cm], [0.3, cm], [0.5, cm]]]],
   jump: [['angle', 'Kick', [[15, '15°'], [30, '30°'], [45, '45°']]]],
   funnel: [['size', 'Size', [[0.1, 'S'], [0.15, 'L']]], ['dir', 'Spin', [[1, '⟲ Left'], [-1, '⟳ Right']]]],
@@ -494,10 +499,22 @@ function commit(d, msg) {
   pushHistory();
   const inst = insts.get(d.id);
   if (inst) { popIn(inst.group); glowBrief(inst.group); if (d.port && PIECES[d.type].kind !== 'place') snapFx(V(d.port.x, d.port.y, d.port.z)); }
-  sound.place();
+  placeSound();
   if (msg) toast(msg);
   afterBuild();
 }
+// pieces placed one after another climb a little scale (and buzz a phone); a pause starts it again
+const placeRun = { n: 0, t: 0 };
+function placeSound() {
+  const now = performance.now();
+  placeRun.n = now - placeRun.t < 2500 ? placeRun.n + 1 : 0; placeRun.t = now;
+  sound.place(placeRun.n); buzz(12);
+}
+// a tiny buzz on phones that allow it (Android; iPhones don't let a web page vibrate)
+S.haptics = store.get('bc.haptics', true);
+const buzz = (p) => { if (S.haptics && navigator.vibrate && touchScreen()) try { navigator.vibrate(p); } catch { /* not allowed yet */ } };
+// the device asks for less motion: no wobbles, no camera swoops, fewer confetti
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 // the parts box of a challenge: how many of each piece may still be used
 const toolKeyOf = (d) => d.type === 'curve' ? (d.opts.dir > 0 ? 'curveL' : 'curveR') : d.type === 'helix' ? (d.opts.dir > 0 ? 'helixL' : 'helixR') : TYPE_TOOL[d.type];
 function partsLeft(key) {
@@ -658,7 +675,7 @@ function insertPiece(toolKey) {
   const inst = insts.get(d.id);
   if (inst) popIn(inst.group);
   S.lastAppend = toolKey;
-  sound.place();
+  placeSound();
   drawMarkers(); updateGhost();
   afterBuild();
   return true;
@@ -1058,7 +1075,10 @@ function onWorldEvent(type, a, b, c, d) {
   else if (type === 'clack') sound.clack(c);
   else if (type === 'note') { sound.note(a); sparkle(b.pos, NOTE_COLORS[a], 4); if (b.ch) { b.ch.notes++; C.maxNotes = Math.max(C.maxNotes, b.ch.notes); } }
   else if (type === 'goal') {
-    sound.goal(); confetti(b.pos); S.score++; toast(L('🎯 Goal! · {0}', S.score));
+    // a plinko bin scores its own points; the 5 gets the big fanfare
+    S.score += b.plinko || 1; buzz([30, 40, 60]); confetti(b.pos, b.plinko === 5 ? 120 : 60);
+    if (b.plinko === 5) sound.fanfare(); else sound.goal();
+    toast(b.plinko ? L('Plinko! +{0} · {1}', b.plinko, S.score) : L('🎯 Goal! · {0}', S.score));
     sticker('first-goal'); raceGoal(b);
     if (b.ch) C.goals.push({ ride: world.time - b.stats.born, pieceId: a.pieceId, loop: b.ch.loop, teddy: b.ch.teddy, tramp: b.ch.tramp, air: Math.max(b.ch.maxAir, b.ch.air), splash: b.ch.splash, gadgets: b.ch.gadgets.size });
   }
@@ -1076,7 +1096,7 @@ const partMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.008, 0.012), 
 partMesh.frustumCulled = false; partMesh.count = 0;
 fxGroup.add(partMesh);
 const parts = [];
-function confetti(p, n = 60) { for (let i = 0; i < n; i++) addPart(p, V((Math.random() - 0.5) * 1.2, 0.8 + Math.random() * 1.2, (Math.random() - 0.5) * 1.2), BALL_COLORS[i % BALL_COLORS.length], 1.6); }
+function confetti(p, n = 60) { if (reduceMotion()) n = Math.ceil(n / 3); for (let i = 0; i < n; i++) addPart(p, V((Math.random() - 0.5) * 1.2, 0.8 + Math.random() * 1.2, (Math.random() - 0.5) * 1.2), BALL_COLORS[i % BALL_COLORS.length], 1.6); }
 function sparkle(p, col, n) { for (let i = 0; i < n; i++) addPart(p, V((Math.random() - 0.5) * 0.4, 0.3 + Math.random() * 0.4, (Math.random() - 0.5) * 0.4), col, 0.6); }
 function addPart(p, v, col, life) {
   if (parts.length >= PART_N) parts.shift();
@@ -1106,7 +1126,7 @@ function updateParts(dt) {
 
 // piece pop-in animation
 const pops = [];
-function popIn(group) { pops.push({ g: group, t: 0 }); }
+function popIn(group) { if (!reduceMotion()) pops.push({ g: group, t: 0 }); }
 function updatePops(dt) {
   for (let i = pops.length - 1; i >= 0; i--) {
     const p = pops[i]; p.t += dt;
@@ -1330,7 +1350,7 @@ function blocked(from, to) {
 // smooth camera moves in the build view (frame the coaster, zoom buttons)
 const camFly = { t: 1, p0: V(), p1: V(), q0: V(), q1: V() };
 function flyTo(pos, target, instant) {
-  if (instant) { camera.position.copy(pos); controls.target.copy(target); camFly.t = 1; controls.update(); return; }
+  if (instant || reduceMotion()) { camera.position.copy(pos); controls.target.copy(target); camFly.t = 1; controls.update(); return; }
   camFly.p0.copy(camera.position); camFly.q0.copy(controls.target); camFly.p1.copy(pos); camFly.q1.copy(target); camFly.t = 0;
 }
 // frame the whole coaster from the current direction (never from below or too flat)
@@ -2247,7 +2267,7 @@ document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click',
   const a = b.dataset.act;
   if (a === 'close') closeModals();
   if (a === 'new') { if (S.challenge) exitChallenge(); clearBalls(); S.selected = null; sync([]); pushHistory(); closeModals(); toast(L('Fresh room! Place a 📍 Start Tower')); S.tab = 'tracks'; pickTool('start'); }
-  if (a === 'demo') { if (S.challenge) exitChallenge(); loadDemo(); closeModals(); }
+  if (a === 'demo') { if (S.challenge) exitChallenge(); loadDemo(); assembleIn(); closeModals(); }
   if (a === 'challenges') { closeModals(); openChallenges(); }
   if (a === 'export') {
     const blob = new Blob([JSON.stringify({ app: 'ball-coaster', v: SAVE_V, pieces }, null, 1)], { type: 'application/json' });
@@ -3394,7 +3414,7 @@ function switchRoom(kind, opts = {}) {
   history = []; histLabels = []; hIdx = -1;
   const saved = store.get(roomKey(kind), null);
   sync(saved && Array.isArray(saved.pieces) ? saved.pieces : kind === 'kids' ? buildDemo() : []);
-  pushHistory();
+  pushHistory(); assembleIn();
   insight.roomChanged(); visitors.roomChanged();
   const seen = new Set(store.get('bc.visitedRooms', [])); seen.add(kind); store.set('bc.visitedRooms', [...seen]);
   if (seen.size >= ROOM_KINDS.length) sticker('rooms');
@@ -3441,7 +3461,7 @@ function openCoaster(data, keepMine) {
   switchRoom(roomKindOk(data.room || 'kids'));
   clearBalls(); S.selected = null;
   sync(migratePieces(data.pieces, data.v ?? SAVE_V));
-  pushHistory();
+  pushHistory(); assembleIn();
   setName(data.name || '');
   fitView();
   toast(L('Loaded! ✨'));
@@ -3594,7 +3614,9 @@ const OPTS = {
   camFollow: { get: () => S.camFollow, set: (v) => { S.camFollow = v; } },
   heights: { get: () => S.heights, set: (v) => { S.heights = v; refreshHeights(); } },
   pro: { get: () => S.pro, set: (v) => { S.pro = v; renderSelPop(); } },
+  haptics: { get: () => S.haptics, set: (v) => { S.haptics = v; buzz(20); } },
 };
+$('optHaptics').classList.toggle('hidden', !(navigator.vibrate && touchScreen()));
 function syncOptions() { document.querySelectorAll('[data-opt]').forEach(b => b.classList.toggle('on', !!OPTS[b.dataset.opt].get())); }
 document.querySelectorAll('[data-opt]').forEach(b => b.addEventListener('click', () => {
   const o = OPTS[b.dataset.opt], v = !o.get();
@@ -3638,9 +3660,11 @@ function contactShadows() {
 const snaps = [];
 const snapGeo = new THREE.TorusGeometry(0.024, 0.0035, 8, 32);
 function snapFx(p) {
-  const m = new THREE.Mesh(snapGeo, new THREE.MeshBasicMaterial({ color: '#ffe08a', transparent: true, depthWrite: false }));
-  m.position.copy(p); m.quaternion.copy(camera.quaternion); m.renderOrder = 9;
-  fxGroup.add(m); snaps.push({ m, t: 0 });
+  if (!reduceMotion()) {
+    const m = new THREE.Mesh(snapGeo, new THREE.MeshBasicMaterial({ color: '#ffe08a', transparent: true, depthWrite: false }));
+    m.position.copy(p); m.quaternion.copy(camera.quaternion); m.renderOrder = 9;
+    fxGroup.add(m); snaps.push({ m, t: 0 });
+  }
   sparkle(p, '#ffd23f', 6);
 }
 function glowBrief(group) {
@@ -3659,8 +3683,75 @@ function hoverPiece(id) {
 }
 canvas.addEventListener('pointerleave', () => hoverPiece(null));
 
+// ---------------------------------------------------------------- the big finish
+// The first ball down a new design slows right down as it drops into a goal, then a beat of
+// stillness as it lands. Only for a lone ball and once per design: with more it would just drag.
+const finale = { k: 1, on: false, ball: null, goal: null, t0: 0, hold: 0, done: '' };
+const designKey = () => room.kind + ':' + hIdx;
+const inGoal = (g, b, rk, up) => { const dx = b.pos.x - g.c.x, dz = b.pos.z - g.c.z; return dx * dx + dz * dz < (g.R * rk) ** 2 && b.pos.y < g.yTop + up && b.pos.y > g.yB - 0.01; };
+function finaleTick(now, dt) {
+  if (!finale.on) {
+    if (finale.done === designKey() || S.auto || S.race || S.replay || S.paused || S.photo) return;
+    const live = liveBalls();
+    if (live.length !== 1) return;
+    const b = live[0];
+    const g = world.devices.find(dv => dv instanceof GoalDevice && inGoal(dv, b, 2.4, 0.14) && (b.vel.y < -0.05 || (b.pos.x - dv.c.x) * b.vel.x + (b.pos.z - dv.c.z) * b.vel.z < 0));
+    if (g) Object.assign(finale, { on: true, ball: b, goal: g, t0: now, hold: 0 });
+    document.body.classList.toggle('finale', finale.on);
+    return;
+  }
+  const b = finale.ball;
+  if (b.collected || b.dead || !world.balls.includes(b) || now - finale.t0 > 2600) return endFinale();
+  if (!finale.hold && inGoal(finale.goal, b, 1, 0.004)) { finale.hold = now; buzz(40); }
+  const target = !finale.hold ? 0.3 : now - finale.hold < 90 ? 0 : 1;
+  finale.k += (target - finale.k) * Math.min(1, dt * (finale.hold ? 30 : 6));
+  if (finale.hold && now - finale.hold > 600) endFinale();
+}
+function endFinale() {
+  if (finale.on) finale.done = designKey();
+  Object.assign(finale, { on: false, k: 1, ball: null, goal: null });
+  document.body.classList.remove('finale');
+}
+canvas.addEventListener('pointerdown', () => { if (finale.on) endFinale(); }); // a tap skips it
+
+// ---------------------------------------------------------------- energy on screen while watching a ball
+// where the ball's energy is right now: moving, height, or already lost to rubbing and bumps
+let energyAt = 0;
+function energyTick() {
+  const el = $('energyHud'), b = S.follow;
+  const show = S.cam !== 'orbit' && b && world.balls.includes(b) && !b.captured && !S.replay && !S.photo;
+  el.classList.toggle('on', !!show);
+  if (!show || performance.now() - energyAt < 100) return;
+  energyAt = performance.now();
+  const E = b.energy(world.g), E0 = Math.max(b.stats.E0 || 0, E.total, 1e-9);
+  const mo = (E.kt + E.kr) / E0, h = Math.max(0, E.pe) / E0, lost = Math.max(0, 1 - mo - h);
+  const [m, hh, l] = el.querySelectorAll('.ebar i');
+  m.style.width = (mo * 100).toFixed(1) + '%'; hh.style.width = (h * 100).toFixed(1) + '%'; l.style.width = (lost * 100).toFixed(1) + '%';
+  el.querySelector('.elegend').innerHTML = `<span class="m">${L('motion')}</span><span class="h">${L('height')}</span><span class="l">${L('lost {0}%', (lost * 100).toFixed(0))}</span>`;
+}
+
+// ---------------------------------------------------------------- a coaster that opens builds itself
+// piece by piece along the track, with a few rising notes
+function assembleIn() {
+  if (reduceMotion()) return;
+  const list = pieces.filter(d => insts.has(d.id)), gap = Math.min(45, 1300 / Math.max(1, list.length));
+  list.forEach((d, i) => {
+    const g = insts.get(d.id).group;
+    g.visible = false;
+    setTimeout(() => {
+      if (!insts.has(d.id) || insts.get(d.id).group !== g) return;
+      g.visible = true; popIn(g);
+      if (i % 3 === 0) sound.place(Math.floor(i / 3) % 8);
+    }, 150 + i * gap);
+  });
+}
+
 // ---------------------------------------------------------------- every frame
 function everyFrame(dt, adv, now) {
+  // a blocked piece pulses, so it reads as "no" without relying on red alone
+  ghostMats.bad.opacity = reduceMotion() ? 0.3 : 0.28 + 0.16 * Math.sin(now * 0.012);
+  finaleTick(now, dt);
+  energyTick();
   for (let i = snaps.length - 1; i >= 0; i--) {
     const s = snaps[i]; s.t += dt;
     const k = s.t / 0.45;
@@ -3696,7 +3787,7 @@ const _qd = new THREE.Quaternion(), _ax = V();
 function loop(now) { requestAnimationFrame(loop); frame(now); }
 function frame(now) {
   const dt = Math.max(0, Math.min(0.05, (now - lastT) / 1000)); lastT = now;
-  const simDt = S.paused || S.replay ? 0 : dt * S.timeScale;
+  const simDt = S.paused || S.replay ? 0 : dt * S.timeScale * finale.k;
   autoTick(simDt);
   simAcc += simDt;
   let steps = Math.floor(simAcc / DT);
@@ -3814,6 +3905,7 @@ if (saved && Array.isArray(saved.pieces) && (saved.pieces.length || room.kind !=
 else if (room.kind === 'kids') loadDemo();
 else { sync([]); pushHistory(); }
 fitView(true);
+assembleIn();
 store.set('bc.visitedRooms', [...new Set([...store.get('bc.visitedRooms', []), room.kind])]);
 insight.renderWindow();
 syncOptions();

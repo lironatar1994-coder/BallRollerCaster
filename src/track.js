@@ -1,7 +1,7 @@
 // Track pieces: path generation, meshes, colliders and moving devices.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/BufferGeometryUtils.js';
-import { SweepCollider, RevolveCollider, BoxCollider, CylinderCollider, RotorBody, SURFACES, seg, arc, polyline, roomClearance } from './physics.js';
+import { SweepCollider, RevolveCollider, BoxCollider, CylinderCollider, SphereCollider, RotorBody, SURFACES, seg, arc, polyline, roomClearance } from './physics.js';
 import * as TX from './textures.js';
 
 export const RC = 0.016;   // inner radius of the channel
@@ -197,8 +197,10 @@ PROFILES.arch = makeArch();
 export const STYLES = ['channel', 'tube', 'ply', 'rails'];
 
 // copy of profile prims with one side switched off before arc length s0 (used by the switch's Y split)
+// side 1 or -1 opens that wall from s0 on; side 2 opens both
+const cutsSide = (cut, side) => cut.side === 2 ? !!side : side === cut.side;
 function cutPrims(prims, side, s0) {
-  return prims.map(p => (side && p.side === side) ? Object.assign({}, p, { s0, s1: Infinity }) : p);
+  return prims.map(p => (side && cutsSide({ side }, p.side)) ? Object.assign({}, p, { s0, s1: Infinity }) : p);
 }
 
 // ---------------------------------------------------------------- geometry
@@ -207,7 +209,7 @@ function sweepGeometry(samples, profile, cut) {
   let idx = idxBy[0];
   const R = V();
   for (const st of profile.strips) {
-    const list = (cut && st.side === cut.side) ? samples.filter(s => s.s >= cut.s0) : samples;
+    const list = (cut && cutsSide(cut, st.side)) ? samples.filter(s => s.s >= cut.s0) : samples;
     if (list.length < 2) continue;
     const pts = st.pts, np = pts.length;
     const per = [0];
@@ -402,25 +404,23 @@ function gearRingGeometry(R, Ri, teeth, depth) {
 
 // ---------------------------------------------------------------- devices
 export class SwitchDevice {
-  constructor(inP) { this.inP = inP; this.flipper = null; this.angle = 0; this.branches = []; }
+  // n ways: the flip-flop has two, the turnstile three
+  constructor(inP, n = 2) { this.inP = inP; this.n = n; this.flipper = null; this.angle = 0; this.branches = []; }
   initState() { return { next: 0, assign: new Map(), tick: 0 }; }
   allow(world, b, idx) {
     const st = world.devState(this);
     let a = st.assign.get(b.id);
     if (!a || world.time - a.t > 0.4) {
-      let d0 = 0, d1 = 0;
-      if (this.branches.length === 2) {
-        d0 = Math.sqrt(this.branches[0].nearest({ i: -1 }, b.pos.x, b.pos.y, b.pos.z));
-        d1 = Math.sqrt(this.branches[1].nearest({ i: -1 }, b.pos.x, b.pos.y, b.pos.z));
-      }
-      if (Math.abs(d0 - d1) < 0.004) {
-        // a ball arriving at the entrance takes the flipper's side, then the flipper flips
+      const ds = this.branches.length === this.n ? this.branches.map(c => Math.sqrt(c.nearest({ i: -1 }, b.pos.x, b.pos.y, b.pos.z))) : [0];
+      const lo = Math.min(...ds);
+      if (Math.max(...ds) - lo < 0.004) {
+        // a ball arriving at the entrance takes the flipper's side, then the flipper moves on
         a = { idx: st.next, t: world.time };
-        st.next ^= 1;
+        st.next = (st.next + 1) % this.n;
         world.emit('switch', this, a.idx);
       } else {
         // a ball coming back (or dropped in) belongs to the branch it is actually on
-        a = { idx: d0 <= d1 ? 0 : 1, t: world.time };
+        a = { idx: ds.indexOf(lo), t: world.time };
       }
       st.assign.set(b.id, a);
     }
@@ -433,9 +433,27 @@ export class SwitchDevice {
   }
   update(world, dt) {
     if (!this.flipper) return;
-    const target = world.devState(this).next ? -0.32 : 0.32;
+    const next = world.devState(this).next, target = this.n === 3 ? [0.38, 0, -0.38][next] : next ? -0.32 : 0.32;
     this.angle += (target - this.angle) * Math.min(1, dt * 18);
     this.flipper.rotation.y = this.angle;
+  }
+}
+
+// the plinko board's bins: a ball that comes to rest in one scores its points
+export class PlinkoDevice {
+  constructor(o, psi, pitch, pts, yB) { this.o = o; this.h = heading(psi); this.S = leftOf(psi); this.pitch = pitch; this.pts = pts; this.yB = yB; }
+  initState() { return { timers: new Map() }; }
+  step(world, dt) {
+    const st = world.devState(this), W = this.pitch * this.pts.length;
+    for (const b of world.balls) {
+      if (b.captured || b.dead || b.collected) continue;
+      const dx = b.pos.x - this.o.x, dz = b.pos.z - this.o.z, u = dx * this.h.x + dz * this.h.z;
+      if (u > 0 && u < W && Math.abs(dx * this.S.x + dz * this.S.z) < 0.02 && b.pos.y < this.yB + 0.04 && b.pos.y > this.yB - 0.01 && b.vel.lengthSq() < 0.04) {
+        const t = (st.timers.get(b.id) || 0) + dt;
+        if (t > 0.3) { b.collected = true; b.plinko = this.pts[Math.min(this.pts.length - 1, Math.floor(u / this.pitch))]; st.timers.delete(b.id); world.emit('goal', this, b); }
+        else st.timers.set(b.id, t);
+      }
+    }
   }
 }
 
@@ -1012,6 +1030,125 @@ export const PIECES = {
       dev.flipper = fl;
       B.meshes.push(holder);
       B.devices.push(dev);
+    },
+  },
+  turnstile: {
+    label: 'Turnstile', kind: 'append', defaults: {},
+    build(d, B, P) {
+      // three ways out: each ball takes the next one round (exits 9 cm apart, room to build on each)
+      const L = 0.24, A = 0.62, ph1 = Math.max(d.slope, 0.04);
+      const dev = new SwitchDevice(P.p.clone(), 3);
+      for (const [side, cut, idx] of [[1, 1, 0], [0, 2, 1], [-1, -1, 2]]) {
+        const s = turtle(P.p, L, x => ({ psi: P.psi + side * A * Math.sin(PI * x / L), phi: lerpE(P.phi, ph1, x / L) }));
+        B.paths.push({ samples: s, profile: 'channel', cut: { side: cut, s0: L * 0.5 }, branchDev: dev, branchIdx: idx });
+        B.outs.push(endPort(s, P.psi, ph1));
+      }
+      const fl = new THREE.Group();
+      const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.004), MAT.blue);
+      paddle.position.set(0.03, 0, 0); fl.add(paddle);
+      fl.add(new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.03, 12), MAT.metal));
+      const holder = new THREE.Group();
+      holder.position.copy(P.p).addScaledVector(heading(P.psi), 0.06).add(V(0, -0.004, 0)); holder.rotation.y = P.psi; holder.add(fl);
+      dev.flipper = fl;
+      B.meshes.push(holder);
+      B.devices.push(dev);
+    },
+  },
+  splitter: {
+    label: 'Speed Splitter', kind: 'append', defaults: { speed: 0.75 },
+    build(d, B, P) {
+      // a gap in the track: a fast ball flies over it and carries on, a slow one drops through
+      // to the chute below. The far side sits 12 mm lower. The gap for a split at `speed` was
+      // measured with the real physics: the ball's own width carries it a good part of the way.
+      const drop = 0.012, G = Math.max(0.03, (d.opts.speed + 0.03) / 14.3);
+      const h = heading(P.psi), La = 0.09;
+      const a = turtle(P.p, La, x => ({ psi: P.psi, phi: lerpE(P.phi, 0, x / La) }));
+      B.paths.push({ samples: a, profile: 'channel', margin1: 0, noAuto: true });
+      const e = last(a).p, ph1 = Math.max(d.slope, 0.03), Lb = 0.1;
+      const b = turtle(e.clone().addScaledVector(h, G).add(V(0, -drop, 0)), Lb, x => ({ psi: P.psi, phi: lerpE(0, ph1, x / Lb) }));
+      B.paths.push({ samples: b, profile: 'channel', margin0: 0, noAuto: true });
+      B.outs.push(endPort(b, P.psi, ph1));
+      // the slow chute runs on under the whole gap, then turns aside on a banked bend (a ball
+      // that only just missed the jump is still quick); a backstop at its start
+      const back = 0.03, Ls = back + G + 0.04, R = 0.13, dir = -1, phc = 0.06, Lt = R * PI / 2;
+      const c0 = e.clone().addScaledVector(h, -back).add(V(0, -0.06, 0));
+      const c = turtle(c0, Ls + Lt, x => {
+        const k = Math.max(0, x - Ls) / Lt;
+        return { psi: P.psi + dir * k * PI / 2, phi: phc, bank: -dir * 0.5 * Math.min(ease(k / 0.3), ease((1 - k) / 0.3)) };
+      });
+      B.paths.push({ samples: c, profile: 'channel' });
+      B.outs.push(endPort(c, P.psi + dir * PI / 2, phc));
+      const stop = c0.clone().addScaledVector(h, -0.002).add(V(0, 0.004, 0));
+      B.colliders.push(new BoxCollider(stop.x, stop.y, stop.z, 0.002, 0.018, RC + TH, P.psi, SURFACES.wood));
+      const stopM = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.036, (RC + TH) * 2), null);
+      stopM.position.copy(stop); stopM.rotation.y = P.psi; stopM.userData.paint = 'solid';
+      B.meshes.push(stopM);
+      B.pillarPts.push(P.p.clone().addScaledVector(h, 0.02).add(V(0, -RC - TH - 0.004, 0)), last(b).p.clone().add(V(0, -RC - TH - 0.004, 0)));
+      // a little speed sign by the gap
+      const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.003, 20), MAT.orange);
+      sign.quaternion.setFromUnitVectors(UP, leftOf(P.psi));
+      sign.position.copy(e).addScaledVector(h, G / 2).addScaledVector(leftOf(P.psi), RC + TH + 0.012).add(V(0, 0.02, 0));
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.002, 0.03, 8), MAT.metal);
+      pole.position.copy(sign.position).add(V(0, -0.016, 0));
+      B.meshes.push(sign, pole);
+    },
+  },
+  plinko: {
+    label: 'Plinko', kind: 'append', defaults: { size: 0.26 },
+    build(d, B, P) {
+      // an upright board of pegs between two clear panes; the bin a ball lands in scores 1, 3 or 5
+      const h = heading(P.psi), S = leftOf(P.psi), PTS = [1, 3, 5, 3, 1], pitch = 0.044, W = pitch * PTS.length;
+      const half = 0.0145; // the panes stand 29 mm apart: room for every ball, not for two side by side
+      const yT = P.p.y + 0.035, yB = yT - d.opts.size, ym = (yT + yB) / 2;
+      const at = (u, y, s = 0) => P.p.clone().addScaledVector(h, u).addScaledVector(S, s).setY(y);
+      const box = (u, y, hx, hy, hz, surf = SURFACES.plastic) => { const c = at(u, y); B.colliders.push(new BoxCollider(c.x, c.y, c.z, hx, hy, hz, P.psi, surf)); };
+      // panes, ends, a lid (open where the ball comes in) and the floor
+      for (const sd of [-1, 1]) { const c = at(W / 2, ym, sd * (half + 0.0015)); B.colliders.push(new BoxCollider(c.x, c.y, c.z, W / 2 + 0.004, d.opts.size / 2, 0.0015, P.psi, SURFACES.glass)); }
+      const yIn = P.p.y - 0.022;
+      box(-0.0035, (yB + yIn) / 2, 0.0015, (yIn - yB) / 2, half);
+      box(W + 0.0035, ym, 0.0015, d.opts.size / 2, half);
+      box((0.035 + W) / 2, yT + 0.0015, (W - 0.035) / 2, 0.0015, half);
+      box(W / 2, yB - 0.0015, W / 2 + 0.004, 0.0015, half, SURFACES.wood);
+      // pegs in staggered rows; bins with dividers at the bottom
+      const pegGeos = [], binTop = yB + 0.05;
+      for (let j = 0, y = P.p.y - 0.045; y > binTop + 0.02; j++, y -= 0.038) {
+        for (let u = pitch * (j % 2 ? 1 : 0.5); u < W - 0.03; u += pitch) {
+          if (u < 0.03) continue; // no peg so near a wall that a ball could wedge in between
+          const c = at(u, y);
+          B.colliders.push(new SphereCollider(c.x, c.y, c.z, 0.0045, SURFACES.wood));
+          const g = new THREE.CylinderGeometry(0.0035, 0.0035, half * 2, 10);
+          g.rotateX(PI / 2); g.rotateY(P.psi); g.translate(c.x, c.y, c.z); pegGeos.push(g);
+        }
+      }
+      for (let k = 1; k < PTS.length; k++) {
+        box(k * pitch, yB + 0.025, 0.0015, 0.025, half);
+        const g = new THREE.BoxGeometry(0.003, 0.05, half * 2);
+        g.rotateY(P.psi); const c = at(k * pitch, yB + 0.025); g.translate(c.x, c.y, c.z); pegGeos.push(g);
+      }
+      const pegs = new THREE.Mesh(mergeGeometries(pegGeos), MAT.gold);
+      pegGeos.forEach(g => g.dispose());
+      const pane = new THREE.Mesh(new THREE.BoxGeometry(W + 0.008, d.opts.size, half * 2 + 0.006), MAT.acrylic);
+      pane.position.copy(at(W / 2, ym)); pane.rotation.y = P.psi;
+      B.meshes.push(pegs, pane);
+      // a solid frame in the track's colour: base, both sides and the top rail
+      const part = (u, y, sx, sy) => { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, half * 2 + 0.01), null); m.position.copy(at(u, y)); m.rotation.y = P.psi; m.userData.paint = 'solid'; B.meshes.push(m); };
+      part(W / 2, yB - 0.004, W + 0.016, 0.008);
+      part(-0.0045, (yB + yIn) / 2, 0.006, yIn - yB);
+      part(W + 0.0045, ym, 0.006, d.opts.size);
+      part((0.035 + W) / 2 + 0.002, yT + 0.003, W - 0.031, 0.006);
+      // bin numbers, and a gold floor under the 5
+      PTS.forEach((n, k) => {
+        const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: TX.badgeTexture(String(n), n === 5 ? '#ffb300' : n === 3 ? '#4c8dff' : '#3ccf7a'), transparent: true }));
+        lab.scale.set(0.022, 0.022, 1); lab.position.copy(at((k + 0.5) * pitch, yB + 0.012, half + 0.012)); lab.raycast = () => {};
+        B.meshes.push(lab);
+      });
+      const gold = new THREE.Mesh(new THREE.BoxGeometry(pitch - 0.004, 0.002, half * 2), MAT.gold);
+      gold.position.copy(at(2.5 * pitch, yB + 0.001)); gold.rotation.y = P.psi;
+      B.meshes.push(gold);
+      B.devices.push(new PlinkoDevice(P.p.clone(), P.psi, pitch, PTS, yB));
+      B.pillarPts.push(at(0.03, yB - 0.009), at(W - 0.03, yB - 0.009));
+      B.probes = []; B.solidPts = [];
+      for (const u of [0.01, W / 2, W - 0.01]) for (const y of [yB + 0.015, ym, yT]) { B.probes.push(at(u, y)); B.solidPts.push(at(u, y)); }
     },
   },
   xylo: {
@@ -1850,6 +1987,7 @@ export function validatePiece(inst, others, roomColliders) {
   validatePiece.hit = null; // [other piece id or null, where] — for showing what it bumps into
   const pts = [];
   for (const path of inst.paths) for (let i = 0; i < path.samples.length; i += 2) pts.push(path.samples[i].p);
+  for (const p of inst.B.solidPts || []) pts.push(p); // pieces without a track (the plinko board) must clear floor and furniture too
   const skip = [];
   if (inst.d.port && PIECES[inst.d.type].kind !== 'place') skip.push(portFromData(inst.d.port).p);
   if (inst.d.to) skip.push(portFromData(inst.d.to).p);

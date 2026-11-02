@@ -80,6 +80,11 @@ const tracks = {
     ['start', { port: { x: -0.5, y: 0.0084, z: 0.5, psi: 0, phi: 0 }, opts: { height: 0.75 } }], ['straight', { slope: 30, opts: { len: 0.5 } }],
     ['curve', { style: 'rails', opts: { angle: 180, radius: 0.08, dir: -1, bank: 25 } }], ['straight', { style: 'rails', opts: { len: 0.2 } }], ['cup'],
   ]), 0],
+  // every ball is quicker than 0.6 m/s here, so it jumps the splitter's gap and lands in a plinko bin
+  'turnstile, speed splitter and plinko': [chain([
+    ['start', { port: { x: -0.6, y: 0.0084, z: 0.45, psi: 0, phi: 0 }, opts: { height: 0.65 } }], ['straight', { opts: { len: 0.15 } }],
+    ['turnstile'], ['straight', { opts: { len: 0.1 } }], ['splitter', { opts: { speed: 0.6 } }], ['straight', { opts: { len: 0.1 } }], ['plinko'],
+  ]), 0],
 };
 const started = Date.now();
 for (const [name, [list, branch]] of Object.entries(tracks)) {
